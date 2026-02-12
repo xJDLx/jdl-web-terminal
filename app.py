@@ -5,31 +5,53 @@ import admin_view
 import home_view
 
 # 1. PAGE CONFIG
-st.set_page_config(page_title="JDL System", page_icon="🏢", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(
+    page_title="JDL System", 
+    page_icon="🏢", 
+    layout="wide", 
+    initial_sidebar_state="collapsed"
+)
 
-# 2. THEME ENGINE
-if "theme" not in st.session_state: st.session_state.theme = "Dark"
+# 2. PERMANENT DARK MODE CSS
+st.markdown("""
+    <style>
+    /* Force Dark Backgrounds (Overrides System Light Mode) */
+    [data-testid="stAppViewContainer"] {background-color: #0e1117;}
+    [data-testid="stHeader"] {background-color: #0e1117;}
+    [data-testid="stSidebar"] {background-color: #262730;}
+    
+    /* Hide Default Menu */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    .block-container {padding-top: 1rem;}
+    
+    /* Professional Dark Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 2px;
+        background-color: #0e1117;
+        padding-bottom: 0px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
+        background-color: #0e1117;
+        border-radius: 4px 4px 0px 0px;
+        gap: 1px;
+        padding-top: 10px;
+        padding-bottom: 10px;
+        color: #b2b2b2;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #1e1e1e;
+        border-bottom: 2px solid #00ff41;
+        color: #00ff41;
+        font-weight: bold;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
-if st.session_state.theme == "Light":
-    st.markdown("""
-        <style>
-        [data-testid="stAppViewContainer"] {background-color: #ffffff; color: black;}
-        [data-testid="stHeader"] {background-color: #ffffff;}
-        [data-testid="stSidebar"] {background-color: #f0f2f6;}
-        .stTabs [data-baseweb="tab-list"] {background-color: #ffffff;}
-        .stTabs [data-baseweb="tab"] {background-color: #ffffff; color: black;}
-        </style>
-    """, unsafe_allow_html=True)
-else:
-    st.markdown("""
-        <style>
-        .stTabs [data-baseweb="tab-list"] {background-color: #0e1117;}
-        .stTabs [data-baseweb="tab"] {background-color: #0e1117; color: #b2b2b2;}
-        .stTabs [aria-selected="true"] {color: #00ff41; border-bottom-color: #00ff41;}
-        </style>
-    """, unsafe_allow_html=True)
-
-# 3. CONNECTION
+# 3. CONNECTION & ROUTING
 conn = st.connection("gsheets", type=GSheetsConnection, ttl=0)
 
 if "admin_verified" not in st.session_state: st.session_state.admin_verified = False
@@ -45,20 +67,16 @@ def main():
 
     # --- ADMIN VIEW ---
     if st.session_state.admin_verified:
-        # NEW: Added "User View" to the tabs
         t1, t2, t3, t4, t5 = st.tabs(["📊 Dashboard", "🗂️ Registry", "👁️ User View", "⚙️ Logs", "🔒 Logout"])
         
         with t1: admin_view.show_dashboard(conn)
         with t2: admin_view.show_catalog_view(conn)
-        
-        # THIS IS THE SWITCHER TAB
         with t3:
-            st.warning("⚠️ You are viewing the User Interface as an Administrator.")
+            st.warning("⚠️ Admin Preview Mode Active")
             home_view.show_user_interface(conn)
-            
-        with t4: st.info("System Normal.")
+        with t4: st.info("System Status: Nominal.")
         with t5:
-            if st.button("Logout"):
+            if st.button("Confirm Logout"):
                 st.query_params.clear()
                 st.session_state.clear()
                 st.rerun()

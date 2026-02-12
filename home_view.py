@@ -3,11 +3,10 @@ import pandas as pd
 import random
 from datetime import datetime
 
-# --- 1. HEARTBEAT (Keeps User Online) ---
+# --- 1. HEARTBEAT ---
 def run_heartbeat(conn):
-    # SAFETY CHECK: If Admin is previewing, DO NOT update database
-    if st.session_state.get("admin_verified"):
-        return
+    # Skip DB update if Admin is previewing
+    if st.session_state.get("admin_verified"): return
 
     if "status_checked" not in st.session_state:
         email = st.query_params.get("u")
@@ -20,17 +19,14 @@ def run_heartbeat(conn):
                     df.at[idx, 'Last Login'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     conn.update(worksheet="Sheet1", data=df)
                     st.session_state.status_checked = True
-            except:
-                pass
+            except: pass
 
-# --- 2. TAB FUNCTIONS ---
+# --- 2. TABS ---
 def tab_overview():
-    # Show "Admin Preview" if admin is watching
-    user_name = st.session_state.get('user_name', 'Agent')
-    if st.session_state.get("admin_verified"):
-        user_name = "Admin (Preview Mode)"
+    user = st.session_state.get('user_name', 'Agent')
+    if st.session_state.get("admin_verified"): user = "Admin (Preview)"
         
-    st.header(f"👋 Welcome, {user_name}")
+    st.header(f"👋 Welcome, {user}")
     st.info("System Status: 🟢 ONLINE")
     c1, c2, c3 = st.columns(3)
     c1.metric("Tasks", "3")
@@ -58,37 +54,32 @@ def tab_inventory():
 def tab_settings(conn):
     st.header("⚙️ Settings")
     
-    # THEME TOGGLE
-    st.subheader("🎨 Appearance")
-    current_theme = st.session_state.get("theme", "Dark")
-    is_dark = True if current_theme == "Dark" else False
-    
-    if st.toggle("🌙 Dark Mode", value=is_dark):
-        st.session_state.theme = "Dark"
-    else:
-        st.session_state.theme = "Light"
-    
-    # Only show "Apply" if it actually changed
-    if st.button("Apply Theme"):
-        st.rerun()
+    # Removed Toggle - Now Static
+    with st.expander("🎨 Appearance", expanded=False):
+        st.info("Theme is enforced by System Administrator.")
+        st.code("Mode: DARK (Terminal Standard)", language="text")
+
+    st.divider()
+
+    with st.expander("🔐 Security Profile"):
+        st.text_input("Email", value=st.query_params.get("u"), disabled=True)
+        st.text_input("New Password", type="password")
+        if st.button("Update Password"):
+            st.toast("Request sent to Admin.")
 
     st.divider()
     
-    # Hide "Logout" if Admin is just previewing
+    # Hide Logout if Admin Preview
     if not st.session_state.get("admin_verified"):
         if st.button("🚪 Log Out", type="primary"):
             st.query_params.clear()
             st.session_state.clear()
             st.rerun()
-    else:
-        st.info("ℹ️ Logout disabled in Preview Mode.")
 
 # --- 3. MASTER INTERFACE ---
 def show_user_interface(conn):
     run_heartbeat(conn)
-    
     t1, t2, t3, t4 = st.tabs(["🏠 Overview", "🔮 Predictions", "📦 Inventory", "⚙️ Settings"])
-    
     with t1: tab_overview()
     with t2: tab_predictions()
     with t3: tab_inventory()

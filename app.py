@@ -11,25 +11,62 @@ except:
 
 st.set_page_config(page_title="JDL Terminal", page_icon="📟", layout="wide")
 
-# Connect with TTL=0 for the most "live" experience
+# Connect with TTL=0 for live tracking
 conn = st.connection("gsheets", type=GSheetsConnection, ttl=0)
 
-# --- 2. PERSISTENCE (STAY LOGGED IN) ---
-# Uses URL query parameters to remember admin status after refresh
+# --- 2. PERSISTENCE (REFRESH PROTECTION) ---
 if "admin_auth" in st.query_params and st.query_params["admin_auth"] == MASTER_ADMIN_KEY:
     st.session_state.owner_verified = True
 
 if "owner_verified" not in st.session_state:
     st.session_state.owner_verified = False
 
-# --- 3. THE GATEKEEPER (LOGIN & REQUESTS) ---
+# --- 3. PAGE FUNCTIONS (Replaces Lambdas) ---
+
+def terminal_online():
+    st.title("📟 Terminal Online")
+    st.success("System operational. Welcome back, Admin.")
+
+def logout_page():
+    st.title("🔒 Logging out...")
+    st.query_params.clear() # Clears the persistence key
+    st.session_state.owner_verified = False
+    st.rerun()
+
+def admin_dashboard():
+    st.title("👥 User & Session Management")
+    
+    # Manual Refresh
+    if st.button("🔄 Sync Live Data"):
+        st.cache_data.clear() # Clears internal cache
+        st.rerun()
+
+    try:
+        df = conn.read(worksheet="Sheet1")
+        st.subheader("User Database")
+        st.dataframe(df, use_container_width=True)
+
+        st.divider()
+        st.subheader("Quick Actions")
+        if not df.empty:
+            target = st.selectbox("Select User", df['Name'].tolist())
+            new_stat = st.radio("Set Status", ["Approved", "Denied", "Pending"], horizontal=True)
+            if st.button("Update Status"):
+                df.loc[df['Name'] == target, 'Status'] = new_stat
+                conn.update(worksheet="Sheet1", data=df)
+                st.success(f"Updated {target} to {new_stat}")
+                st.rerun()
+    except Exception as e:
+        st.error("Sync Error: Ensure 'Sheet1' has all 7 required columns.")
+
+# --- 4. THE GATEKEEPER (LOGIN) ---
 def gatekeeper():
     st.title("📟 JDL Intelligence System")
     tabs = st.tabs(["Member Login", "Request Access", "Admin Portal"])
     
     with tabs[0]: # MEMBER LOGIN
         st.subheader("Member Access")
-        member_key = st.text_input("Enter Email as Key", placeholder="your@email.com").strip().lower()
+        member_key = st.text_input("Enter Email", placeholder="your@email.com").strip().lower()
         if st.button("Log In"):
             try:
                 df = conn.read(worksheet="Sheet1")
@@ -37,9 +74,8 @@ def gatekeeper():
                 if member_key in df['Email'].values:
                     user = df[df['Email'] == member_key].iloc[0]
                     expiry = datetime.strptime(str(user['Expiry']), "%Y-%m-%d")
-                    
                     if user['Status'] != "Approved":
-                        st.error("Access Pending: Admin has not approved you yet.")
+                        st.error("Access Pending: Approval required.")
                     elif datetime.now() > expiry:
                         st.error(f"Access Expired on {user['Expiry']}.")
                     else:
@@ -48,10 +84,8 @@ def gatekeeper():
                         df.loc[df['Email'] == member_key, 'Session'] = "Online"
                         conn.update(worksheet="Sheet1", data=df)
                         st.balloons()
-                else:
-                    st.error("Email not found.")
-            except:
-                st.error("Database Error. Check sheet headers.")
+                else: st.error("Email not found.")
+            except: st.error("Database Error. Check headers.")
 
     with tabs[1]: # REQUEST ACCESS
         st.subheader("New Terminal Request")
@@ -76,40 +110,14 @@ def gatekeeper():
                 if rem: st.query_params["admin_auth"] = MASTER_ADMIN_KEY
                 st.rerun()
 
-# --- 4. ADMIN DASHBOARD ---
-def admin_dashboard():
-    st.title("👥 User & Session Management")
-    
-    # Manual Refresh Button
-    if st.button("🔄 Sync Live Data"):
-        st.cache_data.clear() # Clears any stuck data
-        st.rerun()
-
-    try:
-        df = conn.read(worksheet="Sheet1")
-        st.subheader("User Database")
-        st.dataframe(df, use_container_width=True)
-
-        st.divider()
-        st.subheader("Quick Actions")
-        target = st.selectbox("Select User", df['Name'].tolist())
-        new_stat = st.radio("Set Status", ["Approved", "Denied", "Pending"], horizontal=True)
-        if st.button("Update Status"):
-            df.loc[df['Name'] == target, 'Status'] = new_stat
-            conn.update(worksheet="Sheet1", data=df)
-            st.success(f"Updated {target} to {new_stat}")
-            st.rerun()
-
-    except Exception as e:
-        st.error("Sync Error: Verify your Google Sheet has all 7 columns.")
-
-# --- 5. NAVIGATION ---
+# --- 5. NAVIGATION LOGIC ---
 if not st.session_state.owner_verified:
     gatekeeper()
 else:
+    # Use named functions instead of lambdas to prevent StreamlitAPIException
     pg = st.navigation([
-        st.Page(lambda: st.title("📟 Terminal Online"), title="Terminal", icon="📟"),
+        st.Page(terminal_online, title="Terminal", icon="📟"),
         st.Page(admin_dashboard, title="Manage Users", icon="👥"),
-        st.Page(lambda: (st.query_params.clear(), st.rerun()), title="Logout", icon="🔒")
+        st.Page(logout_page, title="Logout", icon="🔒")
     ])
     pg.run()

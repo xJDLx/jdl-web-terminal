@@ -8,11 +8,11 @@ from datetime import date
 st.set_page_config(page_title="JDL Terminal", page_icon="📟", layout="wide")
 
 # --- 2. SECURITY & STATE INITIALIZATION ---
-# THIS IS YOUR KEY FACTORY - ADD OR REMOVE KEYS HERE
+# Add your generated keys here
 VALID_MEMBERSHIP_KEYS = {
     "JDL-ALPHA-2026": date(2026, 3, 1),   
-    "JDL-BETA-99": date(2026, 2, 20),
-    "GUEST-ACCESS": date(2026, 2, 14) # Example: expires on Valentine's Day
+    "k9P2mX7LqW1z": date(2026, 5, 12),  # Randomly generated key
+    "v8N4jR3TkP9s": date(2026, 2, 28)   # Randomly generated key
 }
 
 if "membership_verified" not in st.session_state:

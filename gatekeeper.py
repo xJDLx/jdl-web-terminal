@@ -1,10 +1,20 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import hashlib
 
 def hash_password(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
+
+def is_membership_expired(expiry_date):
+    """Check if membership has expired"""
+    if expiry_date == "Pending Admin" or pd.isna(expiry_date):
+        return False
+    try:
+        exp = datetime.strptime(str(expiry_date), "%Y-%m-%d")
+        return datetime.now() > exp
+    except:
+        return False
 
 def show_login(conn):
     st.title("📟 JDL Intelligence System")
@@ -24,8 +34,11 @@ def show_login(conn):
                     idx = df[df['Email'] == email].index[0]
                     user = df.iloc[idx]
                     
+                    # Check if membership expired
+                    if is_membership_expired(user.get('Expiry')):
+                        st.error("❌ Your membership has expired. Please request renewal.")
                     # Validate Status and Password
-                    if str(user['Status']) == "Approved" and hash_password(pwd) == str(user['Password']):
+                    elif str(user['Status']) == "Approved" and hash_password(pwd) == str(user['Password']):
                         # --- 1. UPDATE STATUS TO ONLINE ---
                         df.at[idx, 'Session'] = "Online"
                         df.at[idx, 'Last Login'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -53,6 +66,21 @@ def show_login(conn):
             n = st.text_input("Full Name")
             e = st.text_input("Email Address").strip().lower()
             p = st.text_input("Create Private Password", type="password")
+            
+            st.markdown("**Requested Membership Duration:**")
+            duration = st.selectbox(
+                "How long would you like access?",
+                options=[
+                    ("30 Days (1 Month)", 30),
+                    ("60 Days (2 Months)", 60),
+                    ("90 Days (3 Months)", 90),
+                    ("180 Days (6 Months)", 180),
+                    ("365 Days (1 Year)", 365),
+                ],
+                format_func=lambda x: x[0],
+                label_visibility="collapsed"
+            )
+            
             if st.form_submit_button("Submit Request"):
                 if n and e and p:
                     try:
@@ -63,6 +91,7 @@ def show_login(conn):
                             "Password": hash_password(p),
                             "Date": datetime.now().strftime("%Y-%m-%d"), 
                             "Status": "Pending", 
+                            "Requested Duration": f"{duration[1]} days",
                             "Expiry": "Pending Admin",
                             "Last Login": "Never", 
                             "Session": "Offline"
@@ -70,7 +99,7 @@ def show_login(conn):
                         # Append and update
                         updated_df = pd.concat([df, new_data], ignore_index=True)
                         conn.update(worksheet="Sheet1", data=updated_df)
-                        st.success("Request sent to Admin.")
+                        st.success(f"✅ Request sent to Admin. You requested {duration[1]} days of access.")
                     except Exception as e:
                         st.error(f"Request Error: {e}")
                 else:

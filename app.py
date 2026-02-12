@@ -10,11 +10,9 @@ import time
 import numpy as np
 
 # --- CONFIGURATION ---
-CSV_FILE = "portfolio.csv"
-HISTORY_FILE = "history.csv"
 DB_FILE = "csgo_api_v47.json"
-CONFIG_FILE = "api_key.txt"
 STEAMDT_BASE_URL = "https://open.steamdt.com/open/cs2/v1/price/single"
+USER_DATA_DIR = "user_data"  # Directory for per-user data
 
 # Default Weights for Strategy Tuner
 DEFAULT_WEIGHTS = {'abs': 0.4, 'mom': 0.3, 'div': 0.3}
@@ -43,6 +41,31 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# --- USER-SPECIFIC PATH FUNCTIONS ---
+def get_user_folder(user_email):
+    """Create and return user-specific folder path"""
+    if not user_email:
+        return None
+    user_folder = os.path.join(USER_DATA_DIR, user_email.replace("@", "_at_").replace(".", "_dot_"))
+    if not os.path.exists(user_folder):
+        os.makedirs(user_folder, exist_ok=True)
+    return user_folder
+
+def get_user_portfolio_path(user_email):
+    """Get user's private portfolio file path"""
+    user_folder = get_user_folder(user_email)
+    return os.path.join(user_folder, "portfolio.csv") if user_folder else None
+
+def get_user_history_path(user_email):
+    """Get user's private history file path"""
+    user_folder = get_user_folder(user_email)
+    return os.path.join(user_folder, "history.csv") if user_folder else None
+
+def get_user_api_key_path(user_email):
+    """Get user's private API key file path"""
+    user_folder = get_user_folder(user_email)
+    return os.path.join(user_folder, "api_key.txt") if user_folder else None
+
 # --- CONNECTION ---
 conn = st.connection("gsheets", type=GSheetsConnection, ttl=0)
 
@@ -62,17 +85,28 @@ if "w_mom" not in st.session_state:
 if "w_div" not in st.session_state: 
     st.session_state.w_div = DEFAULT_WEIGHTS['div']
 if "api_key" not in st.session_state: 
-    st.session_state.api_key = load_api_key()
+    st.session_state.api_key = ""
 
 
 # --- CORE ENGINE FUNCTIONS ---
-def load_api_key():
-    if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, "r") as f: return f.read().strip()
+def load_api_key(user_email):
+    """Load user's private API key"""
+    if not user_email:
+        return ""
+    api_key_path = get_user_api_key_path(user_email)
+    if api_key_path and os.path.exists(api_key_path):
+        with open(api_key_path, "r") as f:
+            return f.read().strip()
     return ""
 
-def save_api_key(key):
-    with open(CONFIG_FILE, "w") as f: f.write(key.strip())
+def save_api_key(user_email, key):
+    """Save user's private API key"""
+    if not user_email:
+        return
+    api_key_path = get_user_api_key_path(user_email)
+    if api_key_path:
+        with open(api_key_path, "w") as f:
+            f.write(key.strip())
 
 @st.cache_data(ttl=3600)
 def load_local_database():
@@ -94,35 +128,61 @@ def load_local_database():
         return data, None
     except Exception as e: return None, str(e)
 
-def load_portfolio():
+def load_portfolio(user_email):
+    """Load user's private portfolio"""
     required = ["Item Name", "Type", "AT Price", "AT Supply", "Sess Price", "Sess Supply", "Price (CNY)", "Supply", "Daily Sales", "Last Updated"]
-    if os.path.exists(CSV_FILE):
-        df = pd.read_csv(CSV_FILE, encoding="utf-8-sig")
-        for col in required:
-            if col not in df.columns: df[col] = 0
-        return df[required]
+    if not user_email:
+        return pd.DataFrame(columns=required)
+    
+    portfolio_path = get_user_portfolio_path(user_email)
+    if portfolio_path and os.path.exists(portfolio_path):
+        try:
+            df = pd.read_csv(portfolio_path, encoding="utf-8-sig")
+            for col in required:
+                if col not in df.columns: df[col] = 0
+            return df[required]
+        except:
+            return pd.DataFrame(columns=required)
     return pd.DataFrame(columns=required)
 
-def save_portfolio(df):
-    df.to_csv(CSV_FILE, index=False)
+def save_portfolio(user_email, df):
+    """Save user's private portfolio"""
+    if not user_email:
+        return
+    portfolio_path = get_user_portfolio_path(user_email)
+    if portfolio_path:
+        df.to_csv(portfolio_path, index=False, encoding="utf-8-sig")
 
-def load_history():
-    if os.path.exists(HISTORY_FILE): 
+def load_history(user_email):
+    """Load user's private history"""
+    if not user_email:
+        return pd.DataFrame(columns=["Date", "Item Name", "Price (CNY)", "Supply", "Sales Detected"])
+    
+    history_path = get_user_history_path(user_email)
+    if history_path and os.path.exists(history_path):
         try: 
-            df_h = pd.read_csv(HISTORY_FILE, encoding="utf-8-sig")
+            df_h = pd.read_csv(history_path, encoding="utf-8-sig")
             df_h['Date'] = pd.to_datetime(df_h['Date'])
             return df_h
-        except: return pd.DataFrame(columns=["Date", "Item Name", "Price (CNY)", "Supply", "Sales Detected"])
+        except:
+            return pd.DataFrame(columns=["Date", "Item Name", "Price (CNY)", "Supply", "Sales Detected"])
     return pd.DataFrame(columns=["Date", "Item Name", "Price (CNY)", "Supply", "Sales Detected"])
 
-def save_history_entry(item_name, price, supply, sales_detected):
-    df_hist = load_history()
+
+def save_history_entry(user_email, item_name, price, supply, sales_detected):
+    """Save user's private history entry"""
+    if not user_email:
+        return
+    df_hist = load_history(user_email)
     new_entry = pd.DataFrame([{
         "Date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), 
         "Item Name": item_name, "Price (CNY)": price, 
         "Supply": supply, "Sales Detected": sales_detected
     }])
-    pd.concat([df_hist, new_entry], ignore_index=True).to_csv(HISTORY_FILE, index=False)
+    updated = pd.concat([df_hist, new_entry], ignore_index=True)
+    history_path = get_user_history_path(user_email)
+    if history_path:
+        updated.to_csv(history_path, index=False, encoding="utf-8-sig")
 
 def save_local_database(db_data):
     """Safely save database to JSON file"""
@@ -139,8 +199,9 @@ def save_local_database(db_data):
     except Exception as e:
         return False, str(e)
 
-def get_bought_momentum(item_name):
-    df_h = load_history()
+def get_bought_momentum(user_email, item_name):
+    """Get user's private item momentum data"""
+    df_h = load_history(user_email)
     if df_h.empty: return 0, 0, 0
     item_data = df_h[df_h["Item Name"] == item_name].sort_values("Date")
     if len(item_data) < 2: return 0, 0, 0
@@ -162,13 +223,14 @@ def get_bought_momentum(item_name):
     
     return int(bought_3h), int(bought_today), int(bought_yesterday)
 
-def get_prediction_metrics(row, weights):
+def get_prediction_metrics(user_email, row, weights):
+    """Get prediction metrics for user's private data"""
     item_name, e_price, e_supply = row['Item Name'], row["AT Price"], row["AT Supply"]
     c_price, c_supply = row["Price (CNY)"], row["Supply"]
     
-    df_h = load_history()
+    df_h = load_history(user_email)
     sync_count = len(df_h[df_h["Item Name"] == item_name])
-    b_3h, b_today, b_yest = get_bought_momentum(item_name)
+    b_3h, b_today, b_yest = get_bought_momentum(user_email, item_name)
     
     s_pct = (e_supply - c_supply) / max(1, e_supply)
     abs_pts = np.clip((s_pct * 100) * 10, 0, 100) 
@@ -210,7 +272,7 @@ def fetch_market_data(item_hash, api_key):
 if "w_abs" not in st.session_state: st.session_state.w_abs = DEFAULT_WEIGHTS['abs']
 if "w_mom" not in st.session_state: st.session_state.w_mom = DEFAULT_WEIGHTS['mom']
 if "w_div" not in st.session_state: st.session_state.w_div = DEFAULT_WEIGHTS['div']
-if "api_key" not in st.session_state: st.session_state.api_key = load_api_key()
+if "api_key" not in st.session_state: st.session_state.api_key = ""
 
 # --- MAIN APP ---
 def admin_dashboard():
@@ -258,6 +320,29 @@ def admin_dashboard():
         
         st.markdown("---")
         
+        # Check for expiring soon users
+        try:
+            df_check = df_users[df_users['Status'] == 'Approved'].copy()
+            expiring_soon = []
+            for idx, user in df_check.iterrows():
+                exp = user.get('Expiry')
+                if exp and exp != "Pending Admin":
+                    try:
+                        exp_date = datetime.datetime.strptime(str(exp), "%Y-%m-%d")
+                        days_left = (exp_date - datetime.datetime.now()).days
+                        if 0 <= days_left <= 7:
+                            expiring_soon.append((user['Name'], exp, days_left))
+                    except:
+                        pass
+            
+            if expiring_soon:
+                st.warning("⚠️ **Memberships Expiring Soon (7 days or less):**")
+                for name, exp, days in expiring_soon:
+                    st.write(f"  • {name} - expires {exp} ({days} days left)")
+        except:
+            pass
+        
+
         # Recent Activity
         st.subheader("Recent Activity")
         if 'Last Login' in df_users.columns:
@@ -289,6 +374,7 @@ def admin_dashboard():
                     st.write(f"**Status:** {user.get('Status', 'N/A')}")
                     st.write(f"**Email:** {user.get('Email', 'N/A')}")
                     st.write(f"**Joined:** {user.get('Date', 'N/A')}")
+                    st.write(f"**Requested:** {user.get('Requested Duration', 'N/A')}")
                 
                 with col2:
                     st.write(f"**Session:** {user.get('Session', 'Offline')}")
@@ -297,27 +383,51 @@ def admin_dashboard():
                 
                 with col3:
                     # Action buttons
-                    action_col1, action_col2, action_col3 = st.columns(3)
-                    
-                    with action_col1:
-                        if st.button(f"✅ Approve", key=f"approve_{idx}"):
-                            df_users.at[idx, 'Status'] = 'Approved'
-                            df_users.at[idx, 'Expiry'] = (datetime.datetime.now() + datetime.timedelta(days=30)).strftime("%Y-%m-%d")
-                            conn.update(worksheet="Sheet1", data=df_users)
-                            st.success(f"✅ {user['Name']} approved for 30 days")
-                            st.rerun()
-                    
-                    with action_col2:
-                        if st.button(f"❌ Reject", key=f"reject_{idx}"):
-                            df_users.at[idx, 'Status'] = 'Rejected'
-                            conn.update(worksheet="Sheet1", data=df_users)
-                            st.error(f"❌ {user['Name']} rejected")
-                            st.rerun()
-                    
-                    with action_col3:
-                        if st.button(f"🗑️ Delete", key=f"delete_{idx}"):
-                            df_users = df_users.drop(idx)
-                            conn.update(worksheet="Sheet1", data=df_users)
+                    if user.get('Status') == 'Pending':
+                        st.write("**Set Duration:**")
+                        duration_days = st.selectbox(
+                            "Membership Duration",
+                            options=[30, 60, 90, 180, 365],
+                            format_func=lambda x: {30: "30 days (1 month)", 60: "60 days (2 months)", 
+                                                   90: "90 days (3 months)", 180: "180 days (6 months)", 
+                                                   365: "365 days (1 year)"}[x],
+                            key=f"duration_{idx}"
+                        )
+                        
+                        col_btn1, col_btn2 = st.columns(2)
+                        with col_btn1:
+                            if st.button(f"✅ Approve", key=f"approve_{idx}"):
+                                expiry_date = (datetime.datetime.now() + datetime.timedelta(days=duration_days)).strftime("%Y-%m-%d")
+                                df_users.at[idx, 'Status'] = 'Approved'
+                                df_users.at[idx, 'Expiry'] = expiry_date
+                                conn.update(worksheet="Sheet1", data=df_users)
+                                st.success(f"✅ {user['Name']} approved until {expiry_date}")
+                                st.rerun()
+                        
+                        with col_btn2:
+                            if st.button(f"❌ Reject", key=f"reject_{idx}"):
+                                df_users.at[idx, 'Status'] = 'Rejected'
+                                conn.update(worksheet="Sheet1", data=df_users)
+                                st.error(f"❌ {user['Name']} rejected")
+                                st.rerun()
+                    else:
+                        # For already approved users, show edit option
+                        col_btn1, col_btn2, col_btn3 = st.columns(3)
+                        with col_btn1:
+                            if st.button(f"✏️ Edit", key=f"edit_{idx}"):
+                                st.session_state[f"edit_{idx}"] = True
+                        
+                        with col_btn2:
+                            if st.button(f"❌ Reject", key=f"reject_{idx}"):
+                                df_users.at[idx, 'Status'] = 'Rejected'
+                                conn.update(worksheet="Sheet1", data=df_users)
+                                st.error(f"❌ {user['Name']} rejected")
+                                st.rerun()
+                        
+                        with col_btn3:
+                            if st.button(f"🗑️ Delete", key=f"delete_{idx}"):
+                                df_users = df_users.drop(idx)
+                                conn.update(worksheet="Sheet1", data=df_users)
                             st.warning(f"🗑️ {user['Name']} deleted")
                             st.rerun()
     
@@ -335,19 +445,31 @@ def admin_dashboard():
             for idx, user in pending_users.iterrows():
                 st.markdown(f"### {user.get('Name', 'Unknown')}")
                 
-                col1, col2 = st.columns(2)
+                col1, col2, col3 = st.columns(3)
                 with col1:
                     st.write(f"📧 **Email:** {user.get('Email', 'N/A')}")
                     st.write(f"📅 **Request Date:** {user.get('Date', 'N/A')}")
                 
                 with col2:
+                    st.write(f"**Requested Duration:** {user.get('Requested Duration', 'Not specified')}")
+                
+                with col3:
+                    st.write("**Grant Duration:**")
+                    duration_days = st.selectbox(
+                        "Select membership length",
+                        options=[30, 60, 90, 180, 365],
+                        format_func=lambda x: {30: "30 days", 60: "60 days", 90: "90 days", 180: "6 months", 365: "1 year"}[x],
+                        key=f"pending_duration_{idx}"
+                    )
+                    
                     col_btn1, col_btn2 = st.columns(2)
                     with col_btn1:
-                        if st.button(f"✅ Approve 30 days", key=f"approve_pending_{idx}"):
+                        if st.button(f"✅ Approve", key=f"approve_pending_{idx}"):
+                            expiry_date = (datetime.datetime.now() + datetime.timedelta(days=duration_days)).strftime("%Y-%m-%d")
                             df_users.at[idx, 'Status'] = 'Approved'
-                            df_users.at[idx, 'Expiry'] = (datetime.datetime.now() + datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+                            df_users.at[idx, 'Expiry'] = expiry_date
                             conn.update(worksheet="Sheet1", data=df_users)
-                            st.success(f"✅ Approved for 30 days")
+                            st.success(f"✅ Approved until {expiry_date}")
                             st.rerun()
                     
                     with col_btn2:
@@ -391,14 +513,26 @@ def admin_dashboard():
         with col1:
             st.markdown("### User Management")
             
-            # Bulk approval
+            # Bulk approval with duration selector
+            st.write("**Bulk Approve Pending Requests:**")
+            bulk_duration = st.selectbox(
+                "Duration for bulk approval",
+                options=[30, 60, 90, 180, 365],
+                format_func=lambda x: {30: "30 days", 60: "60 days", 90: "90 days", 180: "6 months", 365: "1 year"}[x],
+                key="bulk_duration_select"
+            )
+            
             if st.button("✅ Approve All Pending"):
-                for idx, user in df_users[df_users['Status'] == 'Pending'].iterrows():
-                    df_users.at[idx, 'Status'] = 'Approved'
-                    df_users.at[idx, 'Expiry'] = (datetime.datetime.now() + datetime.timedelta(days=30)).strftime("%Y-%m-%d")
-                conn.update(worksheet="Sheet1", data=df_users)
-                st.success("✅ All pending users approved for 30 days")
-                st.rerun()
+                pending_count = len(df_users[df_users['Status'] == 'Pending'])
+                if pending_count == 0:
+                    st.info("No pending requests to approve")
+                else:
+                    for idx, user in df_users[df_users['Status'] == 'Pending'].iterrows():
+                        df_users.at[idx, 'Status'] = 'Approved'
+                        df_users.at[idx, 'Expiry'] = (datetime.datetime.now() + datetime.timedelta(days=bulk_duration)).strftime("%Y-%m-%d")
+                    conn.update(worksheet="Sheet1", data=df_users)
+                    st.success(f"✅ {pending_count} pending user(s) approved for {bulk_duration} days")
+                    st.rerun()
             
             # Cleanup offline users
             if st.button("🧹 Cleanup Offline Sessions"):
@@ -406,6 +540,7 @@ def admin_dashboard():
                 conn.update(worksheet="Sheet1", data=df_users)
                 st.success("✅ All sessions reset to offline")
                 st.rerun()
+
         
         with col2:
             st.markdown("### System Info")
@@ -417,6 +552,10 @@ def user_dashboard():
     """User Terminal Dashboard"""
     # Load data
     DB_DATA, DB_ERROR = load_local_database()
+    
+    # Load user's API key on first dashboard entry
+    if not st.session_state.api_key:
+        st.session_state.api_key = load_api_key(st.session_state.user_email)
     
     # Top navigation
     col1, col2, col3 = st.columns([0.8, 0.1, 0.1])
@@ -435,12 +574,12 @@ def user_dashboard():
     if st.session_state.user_name:
         st.markdown(f"Welcome, **{st.session_state.user_name}** 👋")
     
-    df_raw = load_portfolio()
+    df_raw = load_portfolio(st.session_state.user_email)
     current_weights = {'abs': st.session_state.w_abs, 'mom': st.session_state.w_mom, 'div': st.session_state.w_div}
     
     if not df_raw.empty:
         df_raw["Market Chart"] = df_raw["Item Name"].apply(lambda x: f"https://steamdt.com/cs2/{x}")
-        pred_res = df_raw.apply(get_prediction_metrics, axis=1, args=(current_weights,), result_type='expand')
+        pred_res = df_raw.apply(lambda row: get_prediction_metrics(st.session_state.user_email, row, current_weights), axis=1, result_type='expand')
         df_raw["Score"], df_raw["Signal"], df_raw["Trend"], df_raw["Breakdown"], df_raw["3H"], df_raw["Today"], df_raw["Yesterday"], df_raw["Syncs"] = \
             pred_res["score"], pred_res["reason"], pred_res["trend"], pred_res["breakdown"], pred_res["3h"], pred_res["today"], pred_res["yesterday"], pred_res["syncs"]
     
@@ -525,17 +664,17 @@ def user_dashboard():
                     if data:
                         df_raw.at[i, "Price (CNY)"] = data["price"]
                         df_raw.at[i, "Supply"] = data["supply"]
-                        save_history_entry(row["Item Name"], data["price"], data["supply"], 0)
+                        save_history_entry(st.session_state.user_email, row["Item Name"], data["price"], data["supply"], 0)
                     prog.progress((i + 1) / len(df_raw)); 
                     time.sleep(3)
-                save_portfolio(df_raw); 
+                save_portfolio(st.session_state.user_email, df_raw); 
                 st.success("✅ Sync Complete!"); 
                 st.rerun()
         
         with st.expander("🔑 API Key Setup"):
             new_key = st.text_input("SteamDT API Key", value=st.session_state.api_key, type="password")
             if st.button("💾 Save Key"): 
-                save_api_key(new_key); 
+                save_api_key(st.session_state.user_email, new_key); 
                 st.session_state.api_key = new_key; 
                 st.success("✅ Saved!")
         
@@ -554,7 +693,7 @@ def user_dashboard():
                             "Last Updated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
                         }
                         df_raw = pd.concat([df_raw, pd.DataFrame([new_row])], ignore_index=True)
-                        save_portfolio(df_raw); 
+                        save_portfolio(st.session_state.user_email, df_raw); 
                         st.success(f"✅ Added {new_item}"); 
                         st.rerun()
                     else:

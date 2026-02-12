@@ -1,7 +1,10 @@
 import os
+import time
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
+from datetime import datetime
+import streamlit as st
 
 def init_google_sheets():
     """Initialize Google Sheets connection"""
@@ -47,12 +50,9 @@ def read_sheet(sheet_name, worksheet_name):
 
 def update_sheet(sheet_name, worksheet_name, df):
     """Update Google Sheet with DataFrame"""
-    if "last_update" in st.session_state:
-        # Prevent updates within 5 seconds of each other
-        if (datetime.now() - st.session_state.last_update).total_seconds() < 5:
-            return
-
     try:
+        # Simple rate limiting
+        time.sleep(1)  # Ensure at least 1 second between updates
         client = init_google_sheets()
         sheet = client.open(sheet_name)
         worksheet = sheet.worksheet(worksheet_name)
@@ -78,9 +78,6 @@ def update_sheet(sheet_name, worksheet_name, df):
         if not df.empty:
             values = df.values.tolist()
             worksheet.update('A2', values)
-            
-        # Update last update time
-        st.session_state.last_update = datetime.now()
             
     except Exception as e:
         raise Exception(f"Failed to update sheet: {e}")

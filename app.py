@@ -12,8 +12,8 @@ import urllib.parse
 
 # --- CONFIGURATION ---
 DB_FILE = "csgo_api_v47.json"
-# Updated to match the working endpoint from your steamdt_api.py
-STEAMDT_BASE_URL = "https://open.steamdt.com/open/cs2/v1/price"
+# Updated to the single price endpoint confirmed in documentation
+STEAMDT_BASE_URL = "https://open.steamdt.com/open/cs2/v1/price/single"
 USER_DATA_DIR = "user_data"
 
 # Default Weights for Strategy Tuner
@@ -58,10 +58,6 @@ def get_user_portfolio_path(user_email):
     folder = get_user_folder(user_email)
     return os.path.join(folder, "portfolio.csv") if folder else None
 
-def get_user_history_path(user_email):
-    folder = get_user_folder(user_email)
-    return os.path.join(folder, "history.csv") if folder else None
-
 def get_user_api_key_path(user_email):
     folder = get_user_folder(user_email)
     return os.path.join(folder, "api_key.txt") if folder else None
@@ -69,7 +65,7 @@ def get_user_api_key_path(user_email):
 # --- CONNECTION ---
 conn = st.connection("gsheets", type=GSheetsConnection, ttl=300)
 
-# Corrected Session State Initialization (Markers removed)
+# Corrected Session State Initialization (Conflict Markers Removed)
 for key, val in [("admin_verified", False), ("user_verified", False), 
                  ("user_email", None), ("user_name", None),
                  ("w_abs", DEFAULT_WEIGHTS['abs']), ("w_mom", DEFAULT_WEIGHTS['mom']), 
@@ -104,7 +100,7 @@ def load_local_database():
     except Exception as e: return None, str(e)
 
 def load_portfolio(user_email):
-    cols = ["Item Name", "Type", "AT Price", "AT Supply", "Sess Price", "Sess Supply", "Price (CNY)", "Supply", "Daily Sales", "Last Updated"]
+    cols = ["Item Name", "Type", "Price (CNY)", "Supply", "Daily Vol", "Last Updated"]
     path = get_user_portfolio_path(user_email)
     if path and os.path.exists(path):
         try:
@@ -119,114 +115,40 @@ def save_portfolio(user_email, df):
     path = get_user_portfolio_path(user_email)
     if path: df.to_csv(path, index=False, encoding="utf-8-sig")
 
-def load_history(user_email):
-    path = get_user_history_path(user_email)
-    if path and os.path.exists(path):
-        try: 
-            df = pd.read_csv(path, encoding="utf-8-sig")
-            df['Date'] = pd.to_datetime(df['Date'])
-            return df
-        except: pass
-    return pd.DataFrame(columns=["Date", "Item Name", "Price (CNY)", "Supply", "Sales Detected"])
-
-def save_history_entry(user_email, item_name, price, supply, sales):
-    df_hist = load_history(user_email)
-    new_entry = pd.DataFrame([{
-        "Date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), 
-        "Item Name": item_name, "Price (CNY)": price, 
-        "Supply": supply, "Sales Detected": sales
-    }])
-    updated = pd.concat([df_hist, new_entry], ignore_index=True)
-    path = get_user_history_path(user_email)
-    if path: updated.to_csv(path, index=False, encoding="utf-8-sig")
-
-def get_bought_momentum(user_email, item_name):
-    df_h = load_history(user_email)
-    if df_h.empty: return 0, 0, 0
-    item_data = df_h[df_h["Item Name"] == item_name].sort_values("Date")
-    if len(item_data) < 2: return 0, 0, 0
-    
-    item_data['buys'] = (item_data['Supply'].shift(1) - item_data['Supply']).clip(lower=0)
-    now = datetime.datetime.now()
-    t_3h, t_24 = now - datetime.timedelta(hours=3), now - datetime.timedelta(hours=24)
-    
-    b_3h = item_data[item_data["Date"] >= t_3h]['buys'].sum()
-    b_today = item_data[item_data["Date"] >= t_24.replace(hour=0, minute=0)]['buys'].sum()
-    y_start = (t_24 - datetime.timedelta(days=1)).replace(hour=0, minute=0)
-    b_yesterday = item_data[(item_data["Date"] >= y_start) & (item_data["Date"] < t_24.replace(hour=0, minute=0))]['buys'].sum()
-    
-    return int(b_3h), int(b_today), int(b_yesterday)
-
-def get_prediction_metrics(user_email, row, weights):
-    item_name, e_price, e_supply = row['Item Name'], row["AT Price"], row["AT Supply"]
-    c_price, c_supply = row["Price (CNY)"], row["Supply"]
-    
-    b_3h, b_today, b_yest = get_bought_momentum(user_email, item_name)
-    s_pct = (e_supply - c_supply) / max(1, e_supply)
-    abs_pts = np.clip((s_pct * 100) * 10, 0, 100) 
-
-    mom_pts = 100 if b_today > b_yest and b_today > 0 else (50 if b_3h > 0 else 0)
-    p_pct = (c_price - e_price) / max(1, e_price)
-    gap = s_pct - p_pct
-    div_pts = np.clip(gap * 500, 0, 100) if gap > 0 else 0
-
-    total = round((abs_pts * weights['abs']) + (mom_pts * weights['mom']) + (div_pts * weights['div']), 1)
-    status = "🥇 THE BEST" if total >= 80 else ("📈 STRENGTHENING" if total >= 50 else ("❌ THE WORST" if total < 15 and s_pct < -0.05 else "⚖️ NEUTRAL"))
-    
-    return {"score": total, "reason": status, "trend": "✅" if total >= 80 else "➖", "breakdown": f"A:{int(abs_pts)}|M:{int(mom_pts)}|D:{int(div_pts)}", "3h": b_3h, "today": b_today, "yesterday": b_yest}
-
 def fetch_market_data(item_hash, api_key):
+    """Fetches Price, Supply, Volume, and Type using URL encoding and 404 handling"""
     try:
-        # Added URL encoding to handle '|' and special characters in item names
         encoded_name = urllib.parse.quote(item_hash)
         headers = {"Authorization": f"Bearer {api_key}"}
         url = f"{STEAMDT_BASE_URL}?marketHashName={encoded_name}"
         r = requests.get(url, headers=headers, timeout=15)
         
         if r.status_code == 200:
-            res_json = r.json()
-            if not res_json.get("success"):
-                return None, res_json.get("errorMsg", "API failure")
-            data = res_json.get("data", [])
-            if not data: return None, "No data for this item"
+            json_res = r.json()
+            data_list = json_res.get("data", [])
+            item_info = json_res.get("item", {})
             
-            # Prefer BUFF pricing; fallback to first available
-            price = next((m['sellPrice'] for m in data if m['platform'] == "BUFF"), data[0]['sellPrice'])
-            supply = sum(m.get("sellCount", 0) for m in data)
-            return {"price": price, "supply": supply}, None
-        return None, f"HTTP Error {r.status_code}"
-    except Exception as e: return None, f"Request Failed: {str(e)}"
+            if not data_list: return None, "No platform data"
+            
+            # Extract Type from tags (Agent, Knife, Glove, etc.)
+            tags = item_info.get("tags", [])
+            item_type = "Unknown"
+            for tag in tags:
+                if tag.get("category") in ["Type", "Weapon", "ItemSet"]:
+                    item_type = tag.get("localized_tag_name", "Unknown")
+                    break
 
-# --- MAIN DASHBOARD LOGIC ---
-def admin_dashboard():
-    col1, col2 = st.columns([0.9, 0.1])
-    with col2:
-        if st.button("🚪 Logout"):
-            st.session_state.admin_verified = False
-            st.rerun()
-    
-    st.title("🔐 Admin Dashboard")
-    try:
-        df_users = conn.read(worksheet="Sheet1", ttl=300)
-    except Exception as e:
-        st.error(f"❌ Connection Error: {str(e)}")
-        st.stop()
-    
-    tabs = st.tabs(["📊 Overview", "👥 Users", "⏳ Pending", "⚙️ Settings"])
-    
-    with tabs[0]:
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Total Users", len(df_users))
-        c2.metric("Approved", len(df_users[df_users['Status'] == 'Approved']))
-        c3.metric("Pending", len(df_users[df_users['Status'] == 'Pending']))
-        st.dataframe(df_users, use_container_width=True, hide_index=True)
+            price = next((m['sellPrice'] for m in data_list if m['platform'] == "BUFF"), data_list[0]['sellPrice'])
+            supply = sum(m.get("sellCount", 0) for m in data_list)
+            vol = sum(m.get("sellCount24h", m.get("biddingCount", 0)) for m in data_list)
+            
+            return {"price": price, "supply": supply, "volume": vol, "type": item_type}, None
+        elif r.status_code == 404:
+            return None, "404: Not Found"
+        return None, f"Error {r.status_code}"
+    except Exception as e: return None, str(e)
 
-    with tabs[3]:
-        if st.button("🧹 Reset Sessions"):
-            df_users['Session'] = 'Offline'
-            conn.update(worksheet="Sheet1", data=df_users)
-            st.success("Sessions Reset")
-
+# --- USER DASHBOARD ---
 def user_dashboard():
     DB_DATA, DB_ERROR = load_local_database()
     if not st.session_state.api_key:
@@ -235,58 +157,64 @@ def user_dashboard():
     st.title("📟 JDL Intelligence Terminal")
     df_raw = load_portfolio(st.session_state.user_email)
     
-    if not df_raw.empty:
-        weights = {'abs': st.session_state.w_abs, 'mom': st.session_state.w_mom, 'div': st.session_state.w_div}
-        # Safely apply prediction metrics
-        try:
-            pred_res = df_raw.apply(lambda row: get_prediction_metrics(st.session_state.user_email, row, weights), axis=1, result_type='expand')
-            df_raw = pd.concat([df_raw, pred_res], axis=1)
-        except: pass
-
-    t = st.tabs(["🛰️ Predictor", "📅 Daily", "🏛️ Permanent", "⚙️ Management"])
+    # Homepage set as default view
+    t = st.tabs(["🏠 Homepage", "🛰️ Predictor", "⚙️ Management"])
     
     with t[0]:
-        if not df_raw.empty:
-            st.dataframe(df_raw.sort_values("score", ascending=False), use_container_width=True, hide_index=True)
-        else: st.info("Add items in Management")
+        st.subheader("Add Item from Local Database")
+        if DB_DATA:
+            selected_item = st.selectbox("Search Database (csgo_api_v47):", [""] + sorted(list(DB_DATA.keys())))
+            if selected_item and st.button("✅ Add to Monitor"):
+                if selected_item in df_raw["Item Name"].values:
+                    st.warning("Item already being tracked.")
+                else:
+                    new_item = pd.DataFrame([{
+                        "Item Name": selected_item,
+                        "Type": DB_DATA[selected_item].get("type", "Unknown"),
+                        "Price (CNY)": 0, "Supply": 0, "Daily Vol": 0,
+                        "Last Updated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                    }])
+                    df_updated = pd.concat([df_raw, new_item], ignore_index=True)
+                    save_portfolio(st.session_state.user_email, df_updated)
+                    st.success("Added to portfolio!")
+                    st.rerun()
 
-    with t[3]:
-        with st.expander("🎯 Strategy Tuner"):
-            st.session_state.w_abs = st.slider("Supply Choke", 0.0, 1.0, st.session_state.w_abs)
-            st.session_state.w_mom = st.slider("Momentum", 0.0, 1.0, st.session_state.w_mom)
-            st.session_state.w_div = st.slider("Price Lag", 0.0, 1.0, st.session_state.w_div)
-        
-        # Ensure API Key can be entered/updated via the UI
-        new_key = st.text_input("SteamDT API Key", value=st.session_state.api_key, type="password")
+    with t[1]:
+        if not df_raw.empty:
+            st.dataframe(df_raw, use_container_width=True, hide_index=True)
+        else: st.info("Use the Homepage tab to add items.")
+
+    with t[2]:
+        st.subheader("🔑 SteamDT API Configuration")
+        new_key = st.text_input("Enter SteamDT API Key", value=st.session_state.api_key, type="password")
         if st.button("💾 Save API Key"):
             save_api_key(st.session_state.user_email, new_key)
             st.session_state.api_key = new_key
-            st.success("Key Updated")
+            st.success("API Key saved!")
 
+        st.divider()
         if st.button("🔄 Global Sync"):
-            if not st.session_state.api_key: st.error("Set API Key first.")
+            if not st.session_state.api_key: st.error("Please set API Key.")
             else:
-                p = st.progress(0)
+                progress_bar = st.progress(0)
                 for i, (idx, row) in enumerate(df_raw.iterrows()):
                     data, err = fetch_market_data(row['Item Name'], st.session_state.api_key)
                     if data:
                         df_raw.at[idx, "Price (CNY)"] = data["price"]
                         df_raw.at[idx, "Supply"] = data["supply"]
+                        df_raw.at[idx, "Daily Vol"] = data["volume"]
+                        df_raw.at[idx, "Type"] = data["type"]
                         df_raw.at[idx, "Last Updated"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                        save_history_entry(st.session_state.user_email, row["Item Name"], data["price"], data["supply"], 0)
                     else:
-                        st.warning(f"Failed to sync {row['Item Name']}: {err}")
-                    
-                    p.progress((i + 1) / len(df_raw))
-                    time.sleep(1.5) # Increased delay to prevent 429 Rate Limiting
-                
+                        st.warning(f"Failed {row['Item Name']}: {err}")
+                    progress_bar.progress((i + 1) / len(df_raw))
+                    time.sleep(1.0) 
                 save_portfolio(st.session_state.user_email, df_raw)
-                st.success("Sync Complete")
+                st.success("Sync Complete!")
 
 def main():
     if not st.session_state.user_verified and not st.session_state.admin_verified:
         gatekeeper.show_login(conn)
-    elif st.session_state.admin_verified: admin_dashboard()
     else: user_dashboard()
 
 if __name__ == "__main__":

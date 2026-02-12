@@ -63,6 +63,7 @@ def get_user_api_key_path(user_email):
 # --- CONNECTION ---
 conn = st.connection("gsheets", type=GSheetsConnection, ttl=300)
 
+# Initialize Session State
 for key, val in [("admin_verified", False), ("user_verified", False), 
                  ("user_email", None), ("user_name", None),
                  ("w_abs", DEFAULT_WEIGHTS['abs']), ("w_mom", DEFAULT_WEIGHTS['mom']), 
@@ -113,26 +114,36 @@ def save_portfolio(user_email, df):
     if path: df.to_csv(path, index=False, encoding="utf-8-sig")
 
 def fetch_market_data(item_hash, api_key):
-    """Fetches Price, Supply, and Daily Volume from SteamDT documentation schema"""
+    """Fetches Price, Supply, Volume, and Type using official SteamDT tags"""
     try:
         headers = {"Authorization": f"Bearer {api_key}"}
         r = requests.get(STEAMDT_BASE_URL, params={"marketHashName": item_hash}, headers=headers, timeout=15)
         if r.status_code == 200:
             json_res = r.json()
             data_list = json_res.get("data", [])
+            item_info = json_res.get("item", {})
+            
             if not data_list: return None, "No platform data found"
             
-            # Map data according to doc.steamdt.com schema
-            # Prioritize BUFF price if available, otherwise use first available
+            # Extract dynamic Type from tags (Agent, Knife, Glove, etc.)
+            tags = item_info.get("tags", [])
+            item_type = "Unknown"
+            for tag in tags:
+                if tag.get("category") in ["Type", "Weapon", "ItemSet"]:
+                    item_type = tag.get("localized_tag_name", "Unknown")
+                    break
+
+            # Pricing and Supply
             price = next((m['sellPrice'] for m in data_list if m['platform'] == "BUFF"), data_list[0]['sellPrice'])
-            
-            # Sum supply across all platforms
             total_supply = sum(m.get("sellCount", 0) for m in data_list)
-            
-            # Sum 24h volume if provided in extended data, otherwise sum biddingCount as a proxy
             daily_vol = sum(m.get("sellCount24h", m.get("biddingCount", 0)) for m in data_list)
             
-            return {"price": price, "supply": total_supply, "volume": daily_vol}, None
+            return {
+                "price": price, 
+                "supply": total_supply, 
+                "volume": daily_vol, 
+                "type": item_type
+            }, None
         return None, f"API Error {r.status_code}"
     except Exception as e: return None, f"Request Failed: {str(e)}"
 
@@ -145,15 +156,16 @@ def user_dashboard():
     st.title("📟 JDL Intelligence Terminal")
     df_raw = load_portfolio(st.session_state.user_email)
     
+    # Homepage set as the default tab
     t = st.tabs(["🏠 Homepage", "🛰️ Predictor", "⚙️ Management"])
     
     with t[0]:
         st.subheader("Add Item from Local Database")
         if DB_DATA:
-            selected_item = st.selectbox("Search csgo_api_v47:", [""] + sorted(list(DB_DATA.keys())))
+            selected_item = st.selectbox("Search Database (csgo_api_v47):", [""] + sorted(list(DB_DATA.keys())))
             if selected_item and st.button("✅ Add to Monitor"):
                 if selected_item in df_raw["Item Name"].values:
-                    st.warning("Item already tracked.")
+                    st.warning("Item already being tracked.")
                 else:
                     new_item = pd.DataFrame([{
                         "Item Name": selected_item,
@@ -161,25 +173,27 @@ def user_dashboard():
                         "Price (CNY)": 0, "Supply": 0, "Daily Vol": 0,
                         "Last Updated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
                     }])
-                    df_raw = pd.concat([df_raw, new_item], ignore_index=True)
-                    save_portfolio(st.session_state.user_email, df_raw)
-                    st.success("Item added!")
+                    df_updated = pd.concat([df_raw, new_item], ignore_index=True)
+                    save_portfolio(st.session_state.user_email, df_updated)
+                    st.success("Item added to portfolio!")
                     st.rerun()
 
     with t[1]:
         if not df_raw.empty:
             st.dataframe(df_raw, use_container_width=True, hide_index=True)
-        else: st.info("Use Homepage to add items first.")
+        else: st.info("Use the Homepage tab to add items.")
 
     with t[2]:
-        new_key = st.text_input("SteamDT API Key", value=st.session_state.api_key, type="password")
-        if st.button("💾 Update API Key"):
+        st.subheader("🔑 SteamDT API Configuration")
+        new_key = st.text_input("Enter SteamDT API Key", value=st.session_state.api_key, type="password")
+        if st.button("💾 Save API Key"):
             save_api_key(st.session_state.user_email, new_key)
             st.session_state.api_key = new_key
-            st.success("Key updated.")
+            st.success("API Key saved!")
 
+        st.divider()
         if st.button("🔄 Sync with SteamDT"):
-            if not st.session_state.api_key: st.error("Please set API Key.")
+            if not st.session_state.api_key: st.error("Please set API Key first.")
             else:
                 progress_bar = st.progress(0)
                 for i, (idx, row) in enumerate(df_raw.iterrows()):
@@ -188,9 +202,10 @@ def user_dashboard():
                         df_raw.at[idx, "Price (CNY)"] = data["price"]
                         df_raw.at[idx, "Supply"] = data["supply"]
                         df_raw.at[idx, "Daily Vol"] = data["volume"]
+                        df_raw.at[idx, "Type"] = data["type"]
                         df_raw.at[idx, "Last Updated"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
                     progress_bar.progress((i + 1) / len(df_raw))
-                    time.sleep(1.0) # Rate limiting safeguard
+                    time.sleep(1.0) 
                 save_portfolio(st.session_state.user_email, df_raw)
                 st.success("Sync Complete!")
 

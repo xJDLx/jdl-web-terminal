@@ -2,7 +2,9 @@ import streamlit as st
 import pandas as pd
 import random
 import json
+import os
 from datetime import datetime
+import item_monitor
 
 # --- 1. HEARTBEAT & EXPIRY ---
 def run_heartbeat(conn):
@@ -83,7 +85,11 @@ def tab_predictions(conn):
     # Add new prediction form
     with st.expander("➕ Add New Prediction"):
         try:
-            with open('csgo_api_v47.json', 'r') as f:
+            # Get the directory of the current file and construct path to JSON
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            json_path = os.path.join(current_dir, 'csgo_api_v47.json')
+            
+            with open(json_path, 'r') as f:
                 api_data = json.load(f)
                 
             # Extract relevant CSGO data
@@ -339,7 +345,7 @@ def show_user_interface(conn):
         return
 
     email = st.query_params.get("u")
-    t1, t2, t3, t4 = st.tabs(["🏠 Overview", "🔮 Predictions", "📦 Inventory", "⚙️ Settings"])
+    t1, t2, t3, t4 = st.tabs(["🏠 Overview", "� Item Monitor", "📦 Inventory", "⚙️ Settings"])
     with t1: tab_overview(conn, email)
     with t2: tab_predictions(conn)
     with t3: tab_inventory(conn)

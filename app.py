@@ -12,7 +12,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 2. DARK THEME CSS
+# 2. DARK MODE CSS
 st.markdown("""
     <style>
     [data-testid="stAppViewContainer"] {background-color: #0e1117;}
@@ -43,22 +43,19 @@ def main():
 
     # --- ADMIN VIEW ---
     if st.session_state.admin_verified:
-        # TABS: Command Center (Merged) AND Database (Separate)
-        t1, t2, t3, t4, t5 = st.tabs(["🛡️ Command Center", "🗂️ Database", "👁️ User View", "⚙️ Logs", "🔒 Logout"])
+        # TABS: Command Center (Merged), User View, Logs, Logout
+        t1, t2, t3, t4 = st.tabs(["🛡️ Command Center", "👁️ User View", "⚙️ Logs", "🔒 Logout"])
         
         with t1:
-            admin_view.show_command_center(conn)
+            admin_view.show_command_center(conn) # <--- Contains Search & Database now
             
         with t2:
-            admin_view.show_database_view(conn) # <--- The dedicated view is back
-            
-        with t3:
             st.warning("⚠️ Admin Preview Mode")
             home_view.show_user_interface(conn)
             
-        with t4: st.info("System Normal.")
+        with t3: st.info("System Normal.")
         
-        with t5:
+        with t4:
             if st.button("Confirm Logout"):
                 st.query_params.clear()
                 st.session_state.clear()

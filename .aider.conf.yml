@@ -1,0 +1,6 @@
+model: openrouter/anthropic/claude-3.5-sonnet
+# Use a cheaper model for small fixes automatically
+weak-model: openrouter/anthropic/claude-3-haiku
+# Enable fancy features
+dark-mode: true
+auto-commits: true

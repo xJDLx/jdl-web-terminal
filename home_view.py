@@ -76,14 +76,37 @@ def tab_overview(conn, email):
     c2.metric("Efficiency", "98%")
     c3.metric("Tasks", "5")
 
-def tab_predictions():
+def tab_predictions(conn):
     st.header("🔮 AI Predictions")
-    chart_data = pd.DataFrame({
-        "Hour": range(24),
-        "Load": [random.randint(20, 90) for _ in range(24)]
-    })
-    st.line_chart(chart_data.set_index("Hour"))
-    st.success("✅ Prediction: Optimal performance expected.")
+    
+    try:
+        # Fetch predictions from database
+        predictions_df = conn.read(worksheet="Predictions", ttl=0)
+        predictions_df = predictions_df.fillna("")
+        
+        if predictions_df.empty:
+            st.info("No predictions available yet.")
+        else:
+            # Display predictions as cards
+            for index, row in predictions_df.iterrows():
+                with st.container(border=True):
+                    col1, col2 = st.columns([3, 1])
+                    
+                    with col1:
+                        st.subheader(f"📊 {row.get('Title', 'Untitled')}")
+                        st.write(row.get('Description', ''))
+                        
+                        # Show metadata
+                        meta_col1, meta_col2, meta_col3 = st.columns(3)
+                        meta_col1.caption(f"Status: {row.get('Status', 'Active')}")
+                        meta_col2.caption(f"Confidence: {row.get('Confidence', 'N/A')}")
+                        meta_col3.caption(f"Date: {row.get('Date', 'N/A')}")
+                    
+                    with col2:
+                        st.metric("Accuracy", f"{row.get('Accuracy', '0')}%")
+    
+    except Exception as e:
+        st.info("📋 Predictions database not yet configured. Admin can add predictions from the Command Center.")
 
 def tab_inventory():
     st.header("📦 Inventory")
@@ -184,6 +207,6 @@ def show_user_interface(conn):
     email = st.query_params.get("u")
     t1, t2, t3, t4 = st.tabs(["🏠 Overview", "🔮 Predictions", "📦 Inventory", "⚙️ Settings"])
     with t1: tab_overview(conn, email)
-    with t2: tab_predictions()
+    with t2: tab_predictions(conn)
     with t3: tab_inventory()
     with t4: tab_settings(conn)

@@ -103,8 +103,79 @@ def show_command_center(conn):
         else:
             df_display = df
 
-        # 5. DATA EDITOR (The Big Table)
-        st.markdown("### 🗂️ Master Database")
+        st.divider()
+        
+        # 6. PREDICTIONS MANAGEMENT SECTION
+        st.markdown("### 🔮 Predictions Management")
+        
+        try:
+            # Fetch predictions
+            predictions_df = conn.read(worksheet="Predictions", ttl=0)
+            predictions_df = predictions_df.fillna("")
+        except:
+            # Create Predictions worksheet if it doesn't exist
+            predictions_df = pd.DataFrame({
+                "ID": [],
+                "Title": [],
+                "Description": [],
+                "Status": [],
+                "Accuracy": [],
+                "Confidence": [],
+                "Date": []
+            })
+        
+        # Add new prediction
+        with st.expander("➕ Add New Prediction", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                new_title = st.text_input("Prediction Title")
+                new_status = st.selectbox("Status", ["Active", "Inactive", "Archived"])
+            with col2:
+                new_desc = st.text_area("Description")
+                new_accuracy = st.slider("Accuracy (%)", 0, 100, 85)
+            
+            new_confidence = st.selectbox("Confidence Level", ["Low", "Medium", "High"])
+            
+            if st.button("Add Prediction", type="primary"):
+                if new_title:
+                    new_row = {
+                        "ID": len(predictions_df) + 1,
+                        "Title": new_title,
+                        "Description": new_desc,
+                        "Status": new_status,
+                        "Accuracy": new_accuracy,
+                        "Confidence": new_confidence,
+                        "Date": datetime.now().strftime("%Y-%m-%d")
+                    }
+                    predictions_df = pd.concat([predictions_df, pd.DataFrame([new_row])], ignore_index=True)
+                    conn.update(worksheet="Predictions", data=predictions_df)
+                    st.success(f"✅ Added prediction: {new_title}")
+                    st.rerun()
+                else:
+                    st.error("Please enter a prediction title.")
+        
+        # Display and edit predictions
+        if not predictions_df.empty:
+            st.markdown("#### Current Predictions")
+            edited_predictions = st.data_editor(
+                predictions_df,
+                use_container_width=True,
+                height=300,
+                num_rows="dynamic",
+                column_config={
+                    "Status": st.column_config.SelectboxColumn("Status", options=["Active", "Inactive", "Archived"]),
+                    "Confidence": st.column_config.SelectboxColumn("Confidence", options=["Low", "Medium", "High"]),
+                    "Accuracy": st.column_config.NumberColumn("Accuracy (%)", min_value=0, max_value=100)
+                }
+            )
+            
+            if st.button("💾 Save Predictions", type="primary", use_container_width=True):
+                conn.update(worksheet="Predictions", data=edited_predictions)
+                st.success("✅ Predictions Updated!")
+        else:
+            st.info("No predictions yet. Add one to get started!")
+        
+
         
         # Display Logic (Convert to Date objects for the picker)
         if 'Expiry' in df_display.columns:

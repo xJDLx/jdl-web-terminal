@@ -15,12 +15,12 @@ st.set_page_config(
 # 2. PERMANENT DARK MODE CSS
 st.markdown("""
     <style>
-    /* Force Dark Backgrounds (Overrides System Light Mode) */
+    /* Force Dark Backgrounds */
     [data-testid="stAppViewContainer"] {background-color: #0e1117;}
     [data-testid="stHeader"] {background-color: #0e1117;}
     [data-testid="stSidebar"] {background-color: #262730;}
     
-    /* Hide Default Menu */
+    /* Hide Default Streamlit Elements */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}

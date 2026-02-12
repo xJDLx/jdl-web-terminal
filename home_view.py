@@ -54,14 +54,8 @@ def tab_inventory():
 def tab_settings(conn):
     st.header("⚙️ Settings")
     
-    # Removed Toggle - Now Static
-    with st.expander("🎨 Appearance", expanded=False):
-        st.info("Theme is enforced by System Administrator.")
-        st.code("Mode: DARK (Terminal Standard)", language="text")
-
-    st.divider()
-
-    with st.expander("🔐 Security Profile"):
+    # --- SECURITY PROFILE ---
+    with st.expander("🔐 Security Profile", expanded=True):
         st.text_input("Email", value=st.query_params.get("u"), disabled=True)
         st.text_input("New Password", type="password")
         if st.button("Update Password"):
@@ -69,12 +63,15 @@ def tab_settings(conn):
 
     st.divider()
     
+    # --- LOGOUT ---
     # Hide Logout if Admin Preview
     if not st.session_state.get("admin_verified"):
         if st.button("🚪 Log Out", type="primary"):
             st.query_params.clear()
             st.session_state.clear()
             st.rerun()
+    else:
+        st.info("ℹ️ Logout disabled in Preview Mode.")
 
 # --- 3. MASTER INTERFACE ---
 def show_user_interface(conn):

@@ -12,12 +12,11 @@ except:
 
 st.set_page_config(page_title="JDL Terminal", page_icon="📟", layout="wide")
 
-# Safe Connection Attempt
+# Connect to GSheets using Service Account
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
 except Exception as e:
-    st.error("⚠️ Connection Error: Check your Streamlit Secrets.")
-    st.info("Make sure you have [connections.gsheets] and 'spreadsheet' defined.")
+    st.error("Credential Error: Check your Streamlit Secrets for service_account details.")
     st.stop()
 
 if "owner_verified" not in st.session_state:
@@ -37,14 +36,14 @@ def gatekeeper():
             if st.form_submit_button("Submit Request"):
                 if req_name and req_email:
                     try:
-                        # Append data to Google Sheets
-                        existing_data = conn.read()
-                        new_row = pd.DataFrame([{"Name": req_name, "Email": req_email, "Date": str(date.today())}])
-                        updated_df = pd.concat([existing_data, new_row], ignore_index=True)
+                        # Fetch and Update
+                        df = conn.read()
+                        new_data = pd.DataFrame([{"Name": req_name, "Email": req_email, "Date": str(date.today())}])
+                        updated_df = pd.concat([df, new_data], ignore_index=True)
                         conn.update(data=updated_df)
-                        st.success("Request saved permanently to Google Sheets!")
+                        st.success("✅ Request saved to secure database!")
                     except Exception as e:
-                        st.error(f"Failed to save: {e}")
+                        st.error(f"❌ Connection Error: {e}")
                 else:
                     st.error("Please fill in all fields.")
 
@@ -72,7 +71,7 @@ def admin_dashboard():
         df = conn.read()
         st.dataframe(df, use_container_width=True)
     except:
-        st.error("Could not load requests from Google Sheets.")
+        st.error("Could not load data from the Cloud.")
 
 pg = st.navigation([
     st.Page(terminal_page, title="Terminal", icon="📟"),

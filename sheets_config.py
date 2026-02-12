@@ -32,6 +32,16 @@ def update_sheet(sheet_name, worksheet_name, df):
         sheet = client.open(sheet_name)
         worksheet = sheet.worksheet(worksheet_name)
         
+        # Get current data to check if update is needed
+        try:
+            current_data = worksheet.get_all_records()
+            current_df = pd.DataFrame(current_data)
+            if not df.empty and not current_df.empty:
+                if df.equals(current_df):
+                    return  # No update needed
+        except:
+            pass  # Continue with update if comparison fails
+        
         # Clear existing content
         worksheet.clear()
         

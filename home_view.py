@@ -136,11 +136,12 @@ def tab_settings(conn):
                 new_key = st.text_input("SteamDT API Key", value=current_key, type="password")
                 
                 if st.button("💾 Save API Key"):
-                    # Update EXACT row index
-                    df.at[idx, "SteamDT API"] = new_key
-                    conn.update(worksheet="Sheet1", data=df)
-                    st.success("Key Saved Successfully!")
-                    st.rerun()
+                    if new_key != current_key:  # Only update if key changed
+                        # Update EXACT row index
+                        df.at[idx, "SteamDT API"] = new_key
+                        conn.update(worksheet="Sheet1", data=df)
+                        st.success("Key Saved Successfully!")
+                        st.rerun()
             else:
                 st.error(f"User '{email_param}' not found in database.")
                 st.write("Debug: available emails ->", df['Email'].tolist())

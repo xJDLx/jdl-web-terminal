@@ -12,7 +12,6 @@ import urllib.parse
 
 # --- CONFIGURATION ---
 DB_FILE = "csgo_api_v47.json"
-# Updated to the single price endpoint confirmed in documentation
 STEAMDT_BASE_URL = "https://open.steamdt.com/open/cs2/v1/price/single"
 USER_DATA_DIR = "user_data"
 
@@ -65,7 +64,6 @@ def get_user_api_key_path(user_email):
 # --- CONNECTION ---
 conn = st.connection("gsheets", type=GSheetsConnection, ttl=300)
 
-# Corrected Session State Initialization (Conflict Markers Removed)
 for key, val in [("admin_verified", False), ("user_verified", False), 
                  ("user_email", None), ("user_name", None),
                  ("w_abs", DEFAULT_WEIGHTS['abs']), ("w_mom", DEFAULT_WEIGHTS['mom']), 
@@ -116,7 +114,7 @@ def save_portfolio(user_email, df):
     if path: df.to_csv(path, index=False, encoding="utf-8-sig")
 
 def fetch_market_data(item_hash, api_key):
-    """Fetches Price, Supply, Volume, and Type using URL encoding and 404 handling"""
+    """Fetches Price, Supply, Volume, and Type using official tags"""
     try:
         encoded_name = urllib.parse.quote(item_hash)
         headers = {"Authorization": f"Bearer {api_key}"}
@@ -130,11 +128,11 @@ def fetch_market_data(item_hash, api_key):
             
             if not data_list: return None, "No platform data"
             
-            # Extract Type from tags (Agent, Knife, Glove, etc.)
+            # Extract Type from tags according to doc.steamdt.com
             tags = item_info.get("tags", [])
             item_type = "Unknown"
             for tag in tags:
-                if tag.get("category") in ["Type", "Weapon", "ItemSet"]:
+                if tag.get("category") in ["Type", "Weapon"]:
                     item_type = tag.get("localized_tag_name", "Unknown")
                     break
 
@@ -157,44 +155,43 @@ def user_dashboard():
     st.title("📟 JDL Intelligence Terminal")
     df_raw = load_portfolio(st.session_state.user_email)
     
-    # Homepage set as default view
     t = st.tabs(["🏠 Homepage", "🛰️ Predictor", "⚙️ Management"])
     
     with t[0]:
         st.subheader("Add Item from Local Database")
         if DB_DATA:
-            selected_item = st.selectbox("Search Database (csgo_api_v47):", [""] + sorted(list(DB_DATA.keys())))
+            selected_item = st.selectbox("Search Database:", [""] + sorted(list(DB_DATA.keys())))
             if selected_item and st.button("✅ Add to Monitor"):
                 if selected_item in df_raw["Item Name"].values:
-                    st.warning("Item already being tracked.")
+                    st.warning("Item already tracked.")
                 else:
                     new_item = pd.DataFrame([{
                         "Item Name": selected_item,
-                        "Type": DB_DATA[selected_item].get("type", "Unknown"),
+                        "Type": "Pending Sync",
                         "Price (CNY)": 0, "Supply": 0, "Daily Vol": 0,
                         "Last Updated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
                     }])
-                    df_updated = pd.concat([df_raw, new_item], ignore_index=True)
-                    save_portfolio(st.session_state.user_email, df_updated)
-                    st.success("Added to portfolio!")
+                    df_raw = pd.concat([df_raw, new_item], ignore_index=True)
+                    save_portfolio(st.session_state.user_email, df_raw)
+                    st.success("Item added!")
                     st.rerun()
 
     with t[1]:
         if not df_raw.empty:
             st.dataframe(df_raw, use_container_width=True, hide_index=True)
-        else: st.info("Use the Homepage tab to add items.")
+        else: st.info("Use Homepage to add items.")
 
     with t[2]:
-        st.subheader("🔑 SteamDT API Configuration")
-        new_key = st.text_input("Enter SteamDT API Key", value=st.session_state.api_key, type="password")
-        if st.button("💾 Save API Key"):
+        st.subheader("🔑 API & Sync Management")
+        new_key = st.text_input("SteamDT API Key", value=st.session_state.api_key, type="password")
+        if st.button("💾 Save Key"):
             save_api_key(st.session_state.user_email, new_key)
             st.session_state.api_key = new_key
-            st.success("API Key saved!")
+            st.success("Saved!")
 
         st.divider()
         if st.button("🔄 Global Sync"):
-            if not st.session_state.api_key: st.error("Please set API Key.")
+            if not st.session_state.api_key: st.error("No API Key")
             else:
                 progress_bar = st.progress(0)
                 for i, (idx, row) in enumerate(df_raw.iterrows()):
@@ -205,12 +202,10 @@ def user_dashboard():
                         df_raw.at[idx, "Daily Vol"] = data["volume"]
                         df_raw.at[idx, "Type"] = data["type"]
                         df_raw.at[idx, "Last Updated"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                    else:
-                        st.warning(f"Failed {row['Item Name']}: {err}")
                     progress_bar.progress((i + 1) / len(df_raw))
-                    time.sleep(1.0) 
+                    time.sleep(1.0)
                 save_portfolio(st.session_state.user_email, df_raw)
-                st.success("Sync Complete!")
+                st.success("Sync Finished")
 
 def main():
     if not st.session_state.user_verified and not st.session_state.admin_verified:

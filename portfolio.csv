@@ -1,3 +1,38 @@
-Item Name,Type,Price (CNY),Supply
-AK-47 Slate,Watchlist,15.50,450
-Desert Eagle Blaze,Inventory,4200.00,12
+Item Name,Type,AT Price,AT Supply,Sess Price,Sess Supply,Price (CNY),Supply,Daily Sales,Last Updated
+Lieutenant Rex Krikey | SEAL Frogman,Inventory,250.0,2065,250.0,2065,274.9,1608,2045,2026-02-11 00:28
+MAC-10 | Disco Tech (Factory New),Inventory,362.49,695,362.49,695,368.99,660,341,2026-02-11 00:28
+MAC-10 | Silver (Factory New),Inventory,1.52,9128,1.52,9128,1.55,8962,8526,2026-02-11 00:28
+Buckshot | NSWC SEAL,Inventory,59.89,3672,59.89,3672,61.7,3433,3177,2026-02-11 00:28
+M4A1-S | Nightmare (Minimal Wear),Inventory,184.9,2072,184.9,2072,184.9,1765,1717,2026-02-11 00:28
+MP7 | Urban Hazard (Factory New),Inventory,10.45,647,10.45,647,9.88,654,609,2026-02-11 00:28
+Desert Eagle | Heat Treated (Field-Tested),Inventory,12.5,16083,12.5,16083,12.63,15430,13619,2026-02-11 00:28
+Desert Eagle | Heat Treated (Minimal Wear),Inventory,33.5,11170,33.5,11170,34.46,10782,9689,2026-02-11 00:28
+1st Lieutenant Farlow | SWAT,Inventory,80.0,2885,80.0,2885,82.0,2706,2892,2026-02-11 00:28
+Lt. Commander Ricksaw | NSWC SEAL,Inventory,197.5,3256,197.5,3256,238.95,1949,2774,2026-02-11 00:29
+Desert Eagle | Mecha Industries (Factory New),Inventory,103.98,3520,103.98,3520,109.85,3489,2948,2026-02-11 00:29
+★ Moto Gloves | Finish Line (Minimal Wear),Inventory,1732.24,450,1732.24,450,1718.8,433,445,2026-02-11 00:29
+Tec-9 | Remote Control (Factory New),Inventory,403.9,811,403.9,811,417.4,716,731,2026-02-11 00:29
+AWP | Crakow! (Factory New),Inventory,1698.0,1364,1698.0,1364,1770.0,1231,1201,2026-02-11 00:29
+M4A1-S | Solitude (Factory New),Inventory,218.0,15750,218.0,15750,218.0,15462,12925,2026-02-11 00:29
+AK-47 | Aquamarine Revenge (Minimal Wear),Inventory,539.5,1382,539.5,1382,549.5,1123,990,2026-02-11 00:29
+Sticker | Quick Peek,Inventory,1.71,9664,1.71,9664,1.7,9789,9197,2026-02-11 00:29
+MP9 | Latte Rush (Factory New),Inventory,1250.5,569,1250.5,569,1234.0,520,503,2026-02-11 00:29
+AWP | Mortis (Factory New),Inventory,112.0,1858,112.0,1858,118.0,1786,1443,2026-02-11 00:29
+MP9 | Ruby Poison Dart (Factory New),Inventory,51.99,1127,51.99,1127,57.39,1022,974,2026-02-11 00:29
+M4A1-S | Leaded Glass (Factory New),Inventory,341.49,2221,341.49,2221,377.0,1839,1804,2026-02-11 00:29
+Sticker | Hypnoteyes (Holo),Inventory,9.33,5126,9.33,5126,9.38,5008,4438,2026-02-11 00:29
+Sticker | jL (Foil) | Austin 2025,Inventory,3.19,1597,3.19,1597,3.19,1469,1405,2026-02-11 00:29
+Chem-Haz Specialist | SWAT,Inventory,174.0,1729,174.0,1729,183.0,1411,1387,2026-02-11 00:29
+AWP | Neo-Noir (Factory New),Inventory,402.5,3719,402.5,3719,410.0,3592,3278,2026-02-11 00:29
+Sticker | MIBR (Holo) | Austin 2025,Inventory,18.68,3094,18.68,3094,18.92,2656,2619,2026-02-11 00:30
+Tec-9 | Safety Net (Factory New),Inventory,48.44,1000,48.44,1000,48.6,883,1010,2026-02-11 00:30
+Sticker | Imperial Esports (Holo) | Austin 2025,Inventory,35.62,2077,35.62,2077,35.31,1928,1751,2026-02-11 00:30
+AWP | Acheron (Factory New),Inventory,31.0,3169,31.0,3169,30.65,3058,2747,2026-02-11 00:30
+AK-47 | Crossfade (Factory New),Inventory,49.0,7824,49.0,7824,52.68,7017,6621,2026-02-11 00:30
+Sticker | Hydro Wave,Inventory,1.28,32012,1.28,32012,1.29,36709,27690,2026-02-11 00:30
+Sticker | jL | Austin 2025,Inventory,1.83,2988,1.83,2988,2.0,2790,2765,2026-02-11 00:30
+Sticker | The Mongolz (Holo) | Austin 2025,Inventory,15.36,5549,15.36,5549,17.57,5634,4704,2026-02-11 00:30
+Sticker | paiN Gaming (Holo) | Austin 2025,Inventory,18.67,2781,18.67,2781,19.0,2537,2319,2026-02-11 00:30
+Ground Rebel  | Elite Crew,Inventory,72.5,3631,72.5,3631,73.7,3546,2981,2026-02-11 00:30
+Sticker | 100 Thieves (Holo) | 2020 RMR,Inventory,0.99,12140,0.99,12140,0.98,11641,11926,2026-02-11 00:30
+Sticker | Taste Bud,Inventory,1.9,14238,1.9,14238,1.96,14524,12620,2026-02-11 00:30

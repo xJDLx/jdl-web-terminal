@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import os
 from datetime import date
 from streamlit_gsheets import GSheetsConnection
 
@@ -8,15 +7,15 @@ from streamlit_gsheets import GSheetsConnection
 try:
     MASTER_ADMIN_KEY = st.secrets["MASTER_KEY"]
 except:
-    MASTER_ADMIN_KEY = "ADMIN-SETUP-MODE"
+    MASTER_ADMIN_KEY = "jdl2026"
 
 st.set_page_config(page_title="JDL Terminal", page_icon="📟", layout="wide")
 
-# Connect to GSheets
+# Force a fresh connection without caching (ttl=0)
 try:
-    conn = st.connection("gsheets", type=GSheetsConnection)
+    conn = st.connection("gsheets", type=GSheetsConnection, ttl=0)
 except Exception as e:
-    st.error(f"Configuration Error: {e}")
+    st.error("Credential Error: Streamlit cannot read your Secrets.")
     st.stop()
 
 if "owner_verified" not in st.session_state:
@@ -35,15 +34,15 @@ def gatekeeper():
             if st.form_submit_button("Submit Request"):
                 if req_name and req_email:
                     try:
+                        # Fetch current data and append
                         df = conn.read()
-                        new_data = pd.DataFrame([{"Name": req_name, "Email": req_email, "Date": str(date.today())}])
-                        updated_df = pd.concat([df, new_data], ignore_index=True)
+                        new_row = pd.DataFrame([{"Name": req_name, "Email": req_email, "Date": str(date.today())}])
+                        updated_df = pd.concat([df, new_row], ignore_index=True)
                         conn.update(data=updated_df)
                         st.success("✅ Request saved to Google Sheets!")
                     except Exception as e:
-                        st.error("❌ Permission Denied by Google.")
-                        st.info("Ensure the email below is an EDITOR on your sheet.")
-                        st.code(st.secrets["connections"]["gsheets"]["client_email"])
+                        st.error("❌ Permission Denied")
+                        st.exception(e)
                 else:
                     st.error("Please fill in all fields.")
 
@@ -60,23 +59,16 @@ if not st.session_state.owner_verified:
     gatekeeper()
     st.stop()
 
-# --- 4. ADMIN PAGES ---
+# --- 4. ADMIN DASHBOARD ---
 def admin_dashboard():
     st.title("👥 User Administration")
-    
-    # DIAGNOSTIC: Show exactly which email to share with
-    try:
-        current_bot = st.secrets["connections"]["gsheets"]["client_email"]
-        st.warning(f"Verify this email is an EDITOR on the sheet: `{current_bot}`")
-    except:
-        st.error("Could not find client_email in Secrets.")
+    st.info(f"Connected as: `jdl-terminal-bot@jdl-terminal.iam.gserviceaccount.com`")
 
-    st.subheader("Live Requests")
     try:
         df = conn.read()
         st.dataframe(df, use_container_width=True)
     except Exception as e:
-        st.error("📡 Database Offline")
+        st.error("Database Connection Failed")
         st.exception(e)
 
 pg = st.navigation([

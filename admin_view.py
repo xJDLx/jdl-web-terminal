@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 
 def show_command_center(conn):
     st.title("🛡️ Command Center")
@@ -10,37 +10,61 @@ def show_command_center(conn):
         df = conn.read(worksheet="Sheet1", ttl=0)
         df = df.fillna("")
         
-        # --- 🚨 NEW: PENDING REQUESTS ALERT SYSTEM ---
+        # --- 🚨 PENDING REQUESTS ALERT SYSTEM ---
         pending_users = df[df['Status'] == 'Pending']
         
         if not pending_users.empty:
             with st.container(border=True):
                 st.error(f"🔔 ACTION REQUIRED: {len(pending_users)} New User Request(s)")
                 
-                # Loop through each pending user to show quick actions
+                # Loop through each pending user
                 for index, row in pending_users.iterrows():
-                    c1, c2, c3, c4 = st.columns([2, 2, 1, 1])
-                    c1.markdown(f"**{row['Name']}**")
-                    c2.markdown(f"`{row['Email']}`")
+                    st.divider() # Separator between users
+                    c1, c2, c3 = st.columns([2, 1.5, 1.5])
                     
-                    # Approve Button
-                    if c3.button("✅ Approve", key=f"app_{index}", use_container_width=True):
-                        df.at[index, 'Status'] = "Approved"
-                        df.at[index, 'Session'] = "Offline"
-                        # Set default expiry (e.g., 30 days from now)
-                        df.at[index, 'Expiry'] = (datetime.now() + pd.Timedelta(days=30)).strftime("%Y-%m-%d")
-                        conn.update(worksheet="Sheet1", data=df)
-                        st.success(f"Approved {row['Name']}!")
-                        st.rerun()
+                    with c1:
+                        st.markdown(f"**{row['Name']}**")
+                        st.caption(f"📧 {row['Email']}")
                         
-                    # Deny Button
-                    if c4.button("❌ Deny", key=f"deny_{index}", use_container_width=True):
-                        df.at[index, 'Status'] = "Denied"
-                        conn.update(worksheet="Sheet1", data=df)
-                        st.warning(f"Denied {row['Name']}.")
-                        st.rerun()
+                    with c2:
+                        # OPTION 1: Pick Exact Date
+                        # Default is Today + 30 Days
+                        default_date = datetime.now() + timedelta(days=30)
+                        picked_date = st.date_input(
+                            "Expiry Date", 
+                            value=default_date, 
+                            min_value=datetime.now(),
+                            key=f"d_{index}", 
+                            label_visibility="collapsed"
+                        )
+                        # OPTION 2: Lifetime Toggle
+                        is_lifetime = st.checkbox("♾️ Lifetime Access", key=f"life_{index}")
 
-        # 2. STANDARD METRICS
+                    with c3:
+                        # APPROVE BUTTON
+                        if st.button("✅ Approve", key=f"app_{index}", use_container_width=True):
+                            # Logic: Lifetime overrides date picker
+                            if is_lifetime:
+                                final_expiry = "2099-12-31"
+                            else:
+                                final_expiry = picked_date.strftime("%Y-%m-%d")
+                                
+                            df.at[index, 'Status'] = "Approved"
+                            df.at[index, 'Session'] = "Offline"
+                            df.at[index, 'Expiry'] = final_expiry
+                            
+                            conn.update(worksheet="Sheet1", data=df)
+                            st.success(f"Approved {row['Name']} until {final_expiry}!")
+                            st.rerun()
+
+                        # DENY BUTTON
+                        if st.button("❌ Deny", key=f"deny_{index}", use_container_width=True):
+                            df.at[index, 'Status'] = "Denied"
+                            conn.update(worksheet="Sheet1", data=df)
+                            st.warning(f"Denied {row['Name']}.")
+                            st.rerun()
+
+        # 2. METRICS
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Active Sessions", len(df[df['Session'] == 'Online']))
         c2.metric("Pending", len(pending_users))
@@ -61,8 +85,10 @@ def show_command_center(conn):
                 df['Session'] = "Offline"
                 # Clean dates for saving
                 save_df = df.copy()
-                save_df['Expiry'] = save_df['Expiry'].astype(str).replace('NaT', '')
-                save_df['Last Login'] = save_df['Last Login'].astype(str).replace('NaT', '')
+                if 'Expiry' in save_df.columns:
+                    save_df['Expiry'] = save_df['Expiry'].astype(str).replace('NaT', '')
+                if 'Last Login' in save_df.columns:
+                    save_df['Last Login'] = save_df['Last Login'].astype(str).replace('NaT', '')
                 conn.update(worksheet="Sheet1", data=save_df)
                 st.rerun()
 
@@ -80,7 +106,7 @@ def show_command_center(conn):
         # 5. DATA EDITOR (The Big Table)
         st.markdown("### 🗂️ Master Database")
         
-        # Safe Date Conversion for Display
+        # Display Logic (Convert to Date objects for the picker)
         if 'Expiry' in df_display.columns:
             df_display['Expiry'] = pd.to_datetime(df_display['Expiry'], errors='coerce')
         if 'Last Login' in df_display.columns:
@@ -104,8 +130,10 @@ def show_command_center(conn):
         if st.button("💾 Save Database Changes", type="primary", use_container_width=True):
             # Clean for Google Sheets
             final_df = edited_df.copy()
-            final_df['Expiry'] = final_df['Expiry'].astype(str).replace('NaT', '')
-            final_df['Last Login'] = final_df['Last Login'].astype(str).replace('NaT', '')
+            if 'Expiry' in final_df.columns:
+                final_df['Expiry'] = final_df['Expiry'].astype(str).replace('NaT', '')
+            if 'Last Login' in final_df.columns:
+                final_df['Last Login'] = final_df['Last Login'].astype(str).replace('NaT', '')
             
             conn.update(worksheet="Sheet1", data=final_df)
             st.success("✅ Database Saved!")

@@ -3,34 +3,38 @@ import pandas as pd
 import random
 from datetime import datetime
 
-# --- 1. HEARTBEAT & EXPIRY CHECK ---
+# --- 1. HEARTBEAT & EXPIRY ---
 def run_heartbeat(conn):
-    # Admin Override: Admins never expire and don't trigger "Online" status updates
     if st.session_state.get("admin_verified"): return "Active"
 
-    email = st.query_params.get("u")
-    if not email: return "No Email"
+    email_param = st.query_params.get("u")
+    if not email_param: return "No Email"
 
     try:
         df = conn.read(worksheet="Sheet1", ttl=0)
         df = df.fillna("")
         
-        if email in df['Email'].values:
-            user_row = df[df['Email'] == email].iloc[0]
+        # SMART MATCH: Clean both sides to ensure they match
+        clean_param = email_param.strip().lower()
+        # Create a temporary column for matching so we don't break original data
+        match_series = df['Email'].astype(str).str.strip().str.lower()
+        
+        if clean_param in match_series.values:
+            # Find the true index in the original dataframe
+            idx = match_series[match_series == clean_param].index[0]
+            user_row = df.iloc[idx]
             
-            # CHECK EXPIRY DATE
+            # Check Expiry
             expiry_str = str(user_row.get('Expiry', ''))
             if expiry_str and expiry_str.strip() != "":
                 try:
                     expiry_date = pd.to_datetime(expiry_str)
                     if datetime.now() > expiry_date:
-                        return "Expired" # LOCKOUT TRIGGER
-                except:
-                    pass # Ignore bad date formats
+                        return "Expired"
+                except: pass
 
-            # UPDATE ONLINE STATUS (Only if not expired)
+            # Update Online Status
             if "status_checked" not in st.session_state:
-                idx = df[df['Email'] == email].index[0]
                 df.at[idx, 'Session'] = "Online"
                 df.at[idx, 'Last Login'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 conn.update(worksheet="Sheet1", data=df)
@@ -39,13 +43,12 @@ def run_heartbeat(conn):
             return "Active"
             
     except Exception as e:
-        # Fail open (allow access) if DB errors occurs, to prevent locking out valid users due to glitches
         print(f"Heartbeat Error: {e}")
         return "Active"
     
     return "Active"
 
-# --- 2. TAB FUNCTIONS ---
+# --- 2. TABS ---
 
 def tab_overview(conn, email):
     user = st.session_state.get('user_name', 'Agent')
@@ -53,26 +56,25 @@ def tab_overview(conn, email):
     
     st.header(f"👋 Welcome, {user}")
     
-    # Calculate Subscription Time Remaining
     days_left = "∞"
     try:
         df = conn.read(worksheet="Sheet1", ttl=0)
-        if email in df['Email'].values:
-            user_row = df[df['Email'] == email].iloc[0]
-            expiry_str = str(user_row.get('Expiry', ''))
-            if expiry_str and expiry_str != "nan" and expiry_str != "":
+        # Smart Match for Display
+        clean_email = email.strip().lower()
+        match = df[df['Email'].astype(str).str.strip().str.lower() == clean_email]
+        if not match.empty:
+            expiry_str = str(match.iloc[0].get('Expiry', ''))
+            if expiry_str and expiry_str != "":
                 exp_date = pd.to_datetime(expiry_str)
                 delta = exp_date - datetime.now()
                 days_left = f"{delta.days} Days"
     except: pass
 
     st.info("System Status: 🟢 ONLINE")
-    
-    # Metrics
     c1, c2, c3 = st.columns(3)
     c1.metric("Subscription", days_left)
-    c2.metric("Efficiency", "94%")
-    c3.metric("Tasks", "3")
+    c2.metric("Efficiency", "98%")
+    c3.metric("Tasks", "5")
 
 def tab_predictions():
     st.header("🔮 AI Predictions")
@@ -95,84 +97,93 @@ def tab_settings(conn):
     st.header("⚙️ Settings")
     
     # --- 🔌 STEAMDT API SECTION ---
-    with st.expander("🔌 SteamDT API Configuration", expanded=True):
-        st.caption("Enter your private SteamDT API Key below. This is encrypted in view.")
+    with st.container(border=True):
+        st.subheader("🔌 API Configuration")
         
         try:
-            # Load fresh data to get current key
             df = conn.read(worksheet="Sheet1", ttl=0)
-            email = st.query_params.get("u")
+            df = df.fillna("")
             
-            # Handle missing column if Admin hasn't added it yet
-            if "SteamDT API" not in df.columns:
-                df["SteamDT API"] = ""
+            # Get Email from URL
+            email_param = st.query_params.get("u")
             
-            # Find current user's key
-            current_key = ""
-            if email in df['Email'].values:
-                user_row = df[df['Email'] == email].iloc[0]
-                if pd.notna(user_row["SteamDT API"]):
-                    current_key = str(user_row["SteamDT API"])
+            # --- DEBUG INFO (Only shows if something is wrong) ---
+            if not email_param:
+                st.error("Error: No user email detected in URL.")
+                st.stop()
+                
+            # SMART MATCH LOGIC
+            clean_param = email_param.strip().lower()
+            match_series = df['Email'].astype(str).str.strip().str.lower()
             
-            # The Secure Input Field
-            new_key = st.text_input("API Key", value=current_key, type="password", placeholder="Paste key here...")
-            
-            if st.button("💾 Save API Key"):
-                if email in df['Email'].values:
-                    idx = df[df['Email'] == email].index[0]
-                    # Update the dataframe in memory
-                    df.at[idx, "SteamDT API"] = new_key
-                    # Push to Google Sheets
-                    conn.update(worksheet="Sheet1", data=df)
-                    st.success("API Key updated successfully!")
-                    st.rerun()
+            # Check if user exists
+            if clean_param in match_series.values:
+                # Get the row index
+                idx = match_series[match_series == clean_param].index[0]
+                user_row = df.iloc[idx]
+                
+                # Check current key
+                current_key = ""
+                if "SteamDT API" in df.columns:
+                    val = user_row.get("SteamDT API", "")
+                    if pd.notna(val) and str(val) != "nan":
+                        current_key = str(val)
                 else:
-                    st.error("User record not found.")
-                    
+                    # Auto-create column if missing
+                    df["SteamDT API"] = ""
+                    conn.update(worksheet="Sheet1", data=df)
+                    st.rerun()
+
+                # Status
+                if current_key: st.caption("Status: 🟢 Key Saved")
+                else: st.caption("Status: 🔴 No Key Found")
+
+                # Input
+                new_key = st.text_input("SteamDT API Key", value=current_key, type="password")
+                
+                if st.button("💾 Save API Key"):
+                    # Update EXACT row index
+                    df.at[idx, "SteamDT API"] = new_key
+                    conn.update(worksheet="Sheet1", data=df)
+                    st.success("Key Saved Successfully!")
+                    st.rerun()
+            else:
+                st.error(f"User '{email_param}' not found in database.")
+                st.write("Debug: available emails ->", df['Email'].tolist())
+
         except Exception as e:
             st.error(f"Settings Error: {e}")
 
     st.divider()
 
-    # --- PASSWORD RESET ---
-    with st.expander("🔐 Security Profile", expanded=False):
+    with st.expander("🔐 Security Profile"):
         st.text_input("Email", value=st.query_params.get("u"), disabled=True)
         st.text_input("New Password", type="password")
         if st.button("Update Password"):
-            st.toast("Security update requested.")
+            st.toast("Request sent to Admin.")
 
     st.divider()
     
-    # --- LOGOUT ---
     if not st.session_state.get("admin_verified"):
         if st.button("🚪 Log Out", type="primary"):
             st.query_params.clear()
             st.session_state.clear()
             st.rerun()
-    else:
-        st.info("ℹ️ Logout disabled in Preview Mode.")
 
 # --- 3. MASTER INTERFACE ---
 def show_user_interface(conn):
-    # 1. Check if user is Expired
     status = run_heartbeat(conn)
-    
     if status == "Expired":
-        st.error("⛔ ACCESS DENIED: Your subscription has expired.")
-        st.warning("Please contact support to renew your access.")
-        if st.button("Return to Login"):
+        st.error("⛔ Subscription Expired.")
+        if st.button("Login"):
             st.query_params.clear()
             st.session_state.clear()
             st.rerun()
-        return # STOP EVERYTHING ELSE
+        return
 
-    # 2. If Active, Show the Tabs
     email = st.query_params.get("u")
-    
     t1, t2, t3, t4 = st.tabs(["🏠 Overview", "🔮 Predictions", "📦 Inventory", "⚙️ Settings"])
-    
     with t1: tab_overview(conn, email)
     with t2: tab_predictions()
     with t3: tab_inventory()
-    # Pass conn to settings so we can save the API key
     with t4: tab_settings(conn)

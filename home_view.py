@@ -173,7 +173,7 @@ def tab_predictions(conn):
     except Exception as e:
         st.error(f"Error loading predictions: {e}")
 
-def tab_inventory():
+def tab_inventory(conn):
     st.header("📦 Inventory Database")
     
     try:
@@ -342,5 +342,5 @@ def show_user_interface(conn):
     t1, t2, t3, t4 = st.tabs(["🏠 Overview", "🔮 Predictions", "📦 Inventory", "⚙️ Settings"])
     with t1: tab_overview(conn, email)
     with t2: tab_predictions(conn)
-    with t3: tab_inventory()
+    with t3: tab_inventory(conn)
     with t4: tab_settings(conn)

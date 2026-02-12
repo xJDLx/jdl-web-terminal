@@ -277,8 +277,7 @@ if "api_key" not in st.session_state: st.session_state.api_key = ""
 # --- MAIN APP ---
 def admin_dashboard():
     """Admin Management Dashboard"""
-    st.set_page_config(page_title="JDL Admin Dashboard", layout="wide")
-    
+
     # Add logout button in top right
     col1, col2 = st.columns([0.9, 0.1])
     with col2:
@@ -297,8 +296,9 @@ def admin_dashboard():
     
     try:
         df_users = conn.read(worksheet="Sheet1", ttl=0)
-    except:
-        st.error("❌ Cannot connect to Google Sheets. Ensure credentials are configured.")
+    except Exception as e:
+        st.error(f"❌ Cannot connect to Google Sheets.\n\n**Error Details:**\n{str(e)}\n\n**Troubleshooting:**\n1. Verify the spreadsheet ID exists: `1xal_NImxGqL7rBdlXnbuV6KX-pJyuIzMhu-paj17C_s`\n2. Ensure the service account `jdl-terminal-bot@jdl-terminal.iam.gserviceaccount.com` has **Editor** access to the sheet\n3. Check that the sheet has a worksheet named `Sheet1`\n4. Restart Streamlit: `streamlit run app.py`")
+        st.stop()
         return
     
     # --- TAB 1: OVERVIEW ---

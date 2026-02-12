@@ -1,17 +1,18 @@
 import streamlit as st
+import database_utils as db # If you created this, otherwise use your connection logic
 
-def show_home():
-    # Wrap logic inside the function so it only runs AFTER app.py is ready
-    name = st.session_state.get("user_name", "Authorized Member")
+def show_home(conn):
+    name = st.session_state.get("user_name", "Member")
+    st.title(f"📟 Welcome, {name}")
     
-    st.title(f"📟 Terminal: Welcome, {name}")
-    st.success("Connection Secure. System is Online.")
-    
-    st.divider()
-    # Member Content Here
-    st.info("No new intelligence alerts for your sector.")
-    
-    if st.button("🔒 Logout"):
+    if st.button("🔒 Complete Logout"):
+        # Set session to Offline in the sheet
+        df = conn.read(worksheet="Sheet1", ttl=0)
+        email = st.query_params.get("u") # Requires email to be in URL
+        if email:
+            df.loc[df['Email'] == email, 'Session'] = "Offline"
+            conn.update(worksheet="Sheet1", data=df)
+            
         st.query_params.clear()
         st.session_state.user_verified = False
         st.rerun()

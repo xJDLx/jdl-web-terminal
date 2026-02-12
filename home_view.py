@@ -174,12 +174,81 @@ def tab_predictions(conn):
         st.error(f"Error loading predictions: {e}")
 
 def tab_inventory():
-    st.header("📦 Inventory")
-    data = [
-        {"ID": "A-101", "Item": "Server Blade", "Status": "Active"},
-        {"ID": "B-202", "Item": "Switch", "Status": "Maintenance"},
-    ]
-    st.dataframe(pd.DataFrame(data), use_container_width=True, hide_index=True)
+    st.header("📦 Inventory Database")
+    
+    try:
+        # Load CSGO API data
+        with open('csgo_api_v47.json', 'r') as f:
+            api_data = json.load(f)
+        
+        # Add new item form
+        with st.expander("➕ Add New Item"):
+            with st.form("new_item"):
+                # Get available items from API
+                items = []
+                for item in api_data.get('items', []):
+                    item_name = item.get('name', '')
+                    if item_name:
+                        items.append(item_name)
+                
+                selected_item = st.selectbox("Select Item", items)
+                entry_price = st.number_input("Entry Price", min_value=0.0, step=0.01)
+                current_price = st.number_input("Current Price", min_value=0.0, step=0.01)
+                
+                # Calculate differences
+                price_diff = current_price - entry_price
+                price_percentage = ((current_price - entry_price) / entry_price * 100) if entry_price > 0 else 0
+                
+                # Get supply from API
+                supply = next((item.get('supply', 0) for item in api_data.get('items', []) 
+                             if item.get('name') == selected_item), 0)
+                
+                submitted = st.form_submit_button("Add Item")
+                
+                if submitted and selected_item:
+                    try:
+                        # Create or load existing inventory
+                        try:
+                            inventory_df = conn.read(worksheet="Inventory", ttl=0)
+                        except:
+                            inventory_df = pd.DataFrame(columns=[
+                                'Item Name', 'Entry Price', 'Current Price', 
+                                'Price Difference', 'Price %', 'Supply'
+                            ])
+                        
+                        # Add new item
+                        new_row = {
+                            'Item Name': selected_item,
+                            'Entry Price': f"${entry_price:.2f}",
+                            'Current Price': f"${current_price:.2f}",
+                            'Price Difference': f"${price_diff:.2f}",
+                            'Price %': f"{price_percentage:.1f}%",
+                            'Supply': supply
+                        }
+                        inventory_df = pd.concat([inventory_df, pd.DataFrame([new_row])], ignore_index=True)
+                        
+                        # Update the sheet
+                        conn.update(worksheet="Inventory", data=inventory_df)
+                        st.success("Item added successfully!")
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"Error adding item: {e}")
+        
+        # Display inventory
+        try:
+            inventory_df = conn.read(worksheet="Inventory", ttl=0)
+            if not inventory_df.empty:
+                st.dataframe(inventory_df, use_container_width=True, hide_index=True)
+            else:
+                st.info("No items in inventory yet.")
+        except Exception as e:
+            st.info("📋 Inventory database not yet configured. Add your first item above.")
+            
+    except FileNotFoundError:
+        st.error("Required API file not found: csgo_api_v47.json")
+    except json.JSONDecodeError:
+        st.error("Error reading API file: Invalid JSON format")
 
 def tab_settings(conn):
     st.header("⚙️ Settings")

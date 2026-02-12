@@ -34,12 +34,9 @@ def show_login(conn):
                         # --- 2. SET SESSION STATE ---
                         st.session_state.user_verified = True
                         st.session_state.user_name = user['Name']
+                        st.session_state.user_email = email
                         
-                        # --- 3. SET URL PARAMETERS (Crucial for Home View) ---
-                        st.query_params["role"] = "user"
-                        st.query_params["name"] = user['Name']
-                        st.query_params["u"] = email  # <--- This allows home_view to track them
-                        
+                        # --- 3. REDIRECT TO USER DASHBOARD ---
                         st.rerun()
                     elif str(user['Status']) != "Approved":
                         st.error(f"Access Denied: Status is '{user['Status']}'")
@@ -85,7 +82,6 @@ def show_login(conn):
         if st.button("Unlock Admin"):
             if admin_key == st.secrets.get("MASTER_KEY"):
                 st.session_state.admin_verified = True
-                st.query_params["role"] = "admin"
                 st.rerun()
             else:
                 st.error("Invalid Master Key.")

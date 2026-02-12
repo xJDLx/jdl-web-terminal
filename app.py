@@ -213,14 +213,227 @@ if "w_div" not in st.session_state: st.session_state.w_div = DEFAULT_WEIGHTS['di
 if "api_key" not in st.session_state: st.session_state.api_key = load_api_key()
 
 # --- MAIN APP ---
-def main():
-    if not st.session_state.user_verified and not st.session_state.admin_verified:
-        gatekeeper.show_login(conn)
+def admin_dashboard():
+    """Admin Management Dashboard"""
+    st.set_page_config(page_title="JDL Admin Dashboard", layout="wide")
+    
+    # Add logout button in top right
+    col1, col2 = st.columns([0.9, 0.1])
+    with col2:
+        if st.button("🚪 Logout"):
+            st.session_state.admin_verified = False
+            st.session_state.user_verified = False
+            st.session_state.user_email = None
+            st.session_state.user_name = None
+            st.rerun()
+    
+    st.title("🔐 Admin Dashboard")
+    st.markdown("---")
+    
+    # Admin tabs
+    admin_tabs = st.tabs(["📊 Overview", "👥 User Management", "📋 Pending Requests", "🔍 Activity & Logs", "⚙️ Settings"])
+    
+    try:
+        df_users = conn.read(worksheet="Sheet1", ttl=0)
+    except:
+        st.error("❌ Cannot connect to Google Sheets. Ensure credentials are configured.")
         return
+    
+    # --- TAB 1: OVERVIEW ---
+    with admin_tabs[0]:
+        st.subheader("System Overview")
+        
+        # Statistics
+        col1, col2, col3, col4 = st.columns(4)
+        
+        total_users = len(df_users)
+        approved = len(df_users[df_users['Status'] == 'Approved'])
+        pending = len(df_users[df_users['Status'] == 'Pending'])
+        online = len(df_users[df_users['Session'] == 'Online'])
+        
+        col1.metric("👥 Total Users", total_users)
+        col2.metric("✅ Approved", approved)
+        col3.metric("⏳ Pending", pending)
+        col4.metric("🟢 Online", online)
+        
+        st.markdown("---")
+        
+        # Recent Activity
+        st.subheader("Recent Activity")
+        if 'Last Login' in df_users.columns:
+            recent = df_users[['Name', 'Email', 'Status', 'Last Login', 'Session']].head(10)
+            st.dataframe(recent, use_container_width=True, hide_index=True)
+        else:
+            st.info("No activity data available")
+    
+    # --- TAB 2: USER MANAGEMENT ---
+    with admin_tabs[1]:
+        st.subheader("User Management")
+        
+        # Filter users
+        status_filter = st.selectbox("Filter by Status", ["All", "Approved", "Pending", "Rejected"])
+        
+        if status_filter == "All":
+            filtered_users = df_users
+        else:
+            filtered_users = df_users[df_users['Status'] == status_filter]
+        
+        st.write(f"Showing {len(filtered_users)} user(s)")
+        
+        # Display users with action buttons
+        for idx, user in filtered_users.iterrows():
+            with st.expander(f"📌 {user.get('Name', 'Unknown')} ({user.get('Email', 'N/A')})"):
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.write(f"**Status:** {user.get('Status', 'N/A')}")
+                    st.write(f"**Email:** {user.get('Email', 'N/A')}")
+                    st.write(f"**Joined:** {user.get('Date', 'N/A')}")
+                
+                with col2:
+                    st.write(f"**Session:** {user.get('Session', 'Offline')}")
+                    st.write(f"**Last Login:** {user.get('Last Login', 'Never')}")
+                    st.write(f"**Expiry:** {user.get('Expiry', 'Pending')}")
+                
+                with col3:
+                    # Action buttons
+                    action_col1, action_col2, action_col3 = st.columns(3)
+                    
+                    with action_col1:
+                        if st.button(f"✅ Approve", key=f"approve_{idx}"):
+                            df_users.at[idx, 'Status'] = 'Approved'
+                            df_users.at[idx, 'Expiry'] = (datetime.datetime.now() + datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+                            conn.update(worksheet="Sheet1", data=df_users)
+                            st.success(f"✅ {user['Name']} approved for 30 days")
+                            st.rerun()
+                    
+                    with action_col2:
+                        if st.button(f"❌ Reject", key=f"reject_{idx}"):
+                            df_users.at[idx, 'Status'] = 'Rejected'
+                            conn.update(worksheet="Sheet1", data=df_users)
+                            st.error(f"❌ {user['Name']} rejected")
+                            st.rerun()
+                    
+                    with action_col3:
+                        if st.button(f"🗑️ Delete", key=f"delete_{idx}"):
+                            df_users = df_users.drop(idx)
+                            conn.update(worksheet="Sheet1", data=df_users)
+                            st.warning(f"🗑️ {user['Name']} deleted")
+                            st.rerun()
+    
+    # --- TAB 3: PENDING REQUESTS ---
+    with admin_tabs[2]:
+        st.subheader("Pending Access Requests")
+        
+        pending_users = df_users[df_users['Status'] == 'Pending']
+        
+        if len(pending_users) == 0:
+            st.success("✅ No pending requests")
+        else:
+            st.warning(f"⚠️ {len(pending_users)} pending request(s)")
+            
+            for idx, user in pending_users.iterrows():
+                st.markdown(f"### {user.get('Name', 'Unknown')}")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write(f"📧 **Email:** {user.get('Email', 'N/A')}")
+                    st.write(f"📅 **Request Date:** {user.get('Date', 'N/A')}")
+                
+                with col2:
+                    col_btn1, col_btn2 = st.columns(2)
+                    with col_btn1:
+                        if st.button(f"✅ Approve 30 days", key=f"approve_pending_{idx}"):
+                            df_users.at[idx, 'Status'] = 'Approved'
+                            df_users.at[idx, 'Expiry'] = (datetime.datetime.now() + datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+                            conn.update(worksheet="Sheet1", data=df_users)
+                            st.success(f"✅ Approved for 30 days")
+                            st.rerun()
+                    
+                    with col_btn2:
+                        if st.button(f"❌ Reject", key=f"reject_pending_{idx}"):
+                            df_users.at[idx, 'Status'] = 'Rejected'
+                            conn.update(worksheet="Sheet1", data=df_users)
+                            st.error(f"❌ Request rejected")
+                            st.rerun()
+                
+                st.divider()
+    
+    # --- TAB 4: ACTIVITY & LOGS ---
+    with admin_tabs[3]:
+        st.subheader("Activity Logs")
+        
+        # Display login activity
+        if 'Last Login' in df_users.columns and 'Session' in df_users.columns:
+            activity_df = df_users[df_users['Session'] == 'Online'][['Name', 'Email', 'Last Login', 'Session']].copy()
+            
+            if len(activity_df) > 0:
+                st.subheader("Currently Online Users")
+                st.dataframe(activity_df, use_container_width=True, hide_index=True)
+            else:
+                st.info("No users currently online")
+            
+            st.divider()
+            
+            st.subheader("Login History")
+            login_history = df_users[['Name', 'Email', 'Last Login', 'Status']].copy()
+            login_history = login_history.sort_values('Last Login', ascending=False, na_position='last')
+            st.dataframe(login_history, use_container_width=True, hide_index=True)
+        else:
+            st.info("Activity logs not available")
+    
+    # --- TAB 5: SETTINGS ---
+    with admin_tabs[4]:
+        st.subheader("System Settings")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("### User Management")
+            
+            # Bulk approval
+            if st.button("✅ Approve All Pending"):
+                for idx, user in df_users[df_users['Status'] == 'Pending'].iterrows():
+                    df_users.at[idx, 'Status'] = 'Approved'
+                    df_users.at[idx, 'Expiry'] = (datetime.datetime.now() + datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+                conn.update(worksheet="Sheet1", data=df_users)
+                st.success("✅ All pending users approved for 30 days")
+                st.rerun()
+            
+            # Cleanup offline users
+            if st.button("🧹 Cleanup Offline Sessions"):
+                df_users.loc[df_users['Session'] == 'Online', 'Session'] = 'Offline'
+                conn.update(worksheet="Sheet1", data=df_users)
+                st.success("✅ All sessions reset to offline")
+                st.rerun()
+        
+        with col2:
+            st.markdown("### System Info")
+            st.metric("Active Users", len(df_users[df_users['Status'] == 'Approved']))
+            st.metric("Total Requests", len(df_users))
+            st.metric("Rejection Rate", f"{(len(df_users[df_users['Status'] == 'Rejected']) / len(df_users) * 100):.1f}%" if len(df_users) > 0 else "N/A")
 
+def user_dashboard():
+    """User Terminal Dashboard"""
     # Load data
     DB_DATA, DB_ERROR = load_local_database()
+    
+    # Top navigation
+    col1, col2, col3 = st.columns([0.8, 0.1, 0.1])
+    with col2:
+        if st.button("⚙️", help="Settings"):
+            st.query_params["page"] = "settings"
+    with col3:
+        if st.button("🚪", help="Logout"):
+            st.session_state.user_verified = False
+            st.session_state.user_email = None
+            st.session_state.user_name = None
+            st.rerun()
+    
     st.title("📟 JDL Intelligence Terminal")
+    
+    if st.session_state.user_name:
+        st.markdown(f"Welcome, **{st.session_state.user_name}** 👋")
     
     df_raw = load_portfolio()
     current_weights = {'abs': st.session_state.w_abs, 'mom': st.session_state.w_mom, 'div': st.session_state.w_div}
@@ -304,7 +517,8 @@ def main():
             elif df_raw.empty:
                 st.error("❌ No items to sync.")
             else:
-                prog = st.progress(0); status = st.empty()
+                prog = st.progress(0)
+                status = st.empty()
                 for i, row in df_raw.iterrows():
                     status.text(f"Updating {row['Item Name']}..."); 
                     data, err = fetch_market_data(row["Item Name"], st.session_state.api_key)
@@ -314,12 +528,16 @@ def main():
                         save_history_entry(row["Item Name"], data["price"], data["supply"], 0)
                     prog.progress((i + 1) / len(df_raw)); 
                     time.sleep(3)
-                save_portfolio(df_raw); st.success("✅ Sync Complete!"); st.rerun()
+                save_portfolio(df_raw); 
+                st.success("✅ Sync Complete!"); 
+                st.rerun()
         
         with st.expander("🔑 API Key Setup"):
             new_key = st.text_input("SteamDT API Key", value=st.session_state.api_key, type="password")
             if st.button("💾 Save Key"): 
-                save_api_key(new_key); st.session_state.api_key = new_key; st.success("✅ Saved!")
+                save_api_key(new_key); 
+                st.session_state.api_key = new_key; 
+                st.success("✅ Saved!")
         
         with st.expander("➕ Add New Item"):
             if DB_DATA:
@@ -343,6 +561,19 @@ def main():
                         st.error(f"❌ {err}")
             else:
                 st.error(f"❌ {DB_ERROR}")
+
+def main():
+    # Show login if not authenticated
+    if not st.session_state.user_verified and not st.session_state.admin_verified:
+        gatekeeper.show_login(conn)
+        return
+    
+    # Show admin dashboard if admin
+    if st.session_state.admin_verified:
+        admin_dashboard()
+    # Show user dashboard if user
+    elif st.session_state.user_verified:
+        user_dashboard()
 
 if __name__ == "__main__":
     main()

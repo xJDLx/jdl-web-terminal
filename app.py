@@ -56,10 +56,6 @@ def get_user_portfolio_path(user_email):
     folder = get_user_folder(user_email)
     return os.path.join(folder, "portfolio.csv") if folder else None
 
-def get_user_history_path(user_email):
-    folder = get_user_folder(user_email)
-    return os.path.join(folder, "history.csv") if folder else None
-
 def get_user_api_key_path(user_email):
     folder = get_user_folder(user_email)
     return os.path.join(folder, "api_key.txt") if folder else None
@@ -101,7 +97,7 @@ def load_local_database():
     except Exception as e: return None, str(e)
 
 def load_portfolio(user_email):
-    cols = ["Item Name", "Type", "AT Price", "AT Supply", "Price (CNY)", "Supply", "Daily Vol", "Last Updated"]
+    cols = ["Item Name", "Type", "Price (CNY)", "Supply", "Daily Vol", "Last Updated"]
     path = get_user_portfolio_path(user_email)
     if path and os.path.exists(path):
         try:
@@ -117,24 +113,28 @@ def save_portfolio(user_email, df):
     if path: df.to_csv(path, index=False, encoding="utf-8-sig")
 
 def fetch_market_data(item_hash, api_key):
-    """Fetches Price, Supply, and Daily Volume from SteamDT"""
+    """Fetches Price, Supply, and Daily Volume from SteamDT documentation schema"""
     try:
         headers = {"Authorization": f"Bearer {api_key}"}
         r = requests.get(STEAMDT_BASE_URL, params={"marketHashName": item_hash}, headers=headers, timeout=15)
         if r.status_code == 200:
-            data = r.json().get("data", [])
-            if not data: return None, "Not Found"
+            json_res = r.json()
+            data_list = json_res.get("data", [])
+            if not data_list: return None, "No platform data found"
             
-            # Prefer BUFF for price, sum sellCount for total supply
-            price = next((m['sellPrice'] for m in data if m['platform'] == "BUFF"), data[0]['sellPrice'])
-            supply = sum(m.get("sellCount", 0) for m in data)
+            # Map data according to doc.steamdt.com schema
+            # Prioritize BUFF price if available, otherwise use first available
+            price = next((m['sellPrice'] for m in data_list if m['platform'] == "BUFF"), data_list[0]['sellPrice'])
             
-            # Daily Volume is often represented as 24h sales or sell count in API snippets
-            volume = sum(m.get("sellCount24h", 0) for m in data) 
+            # Sum supply across all platforms
+            total_supply = sum(m.get("sellCount", 0) for m in data_list)
             
-            return {"price": price, "supply": supply, "volume": volume}, None
-        return None, f"Error {r.status_code}"
-    except: return None, "Request Failed"
+            # Sum 24h volume if provided in extended data, otherwise sum biddingCount as a proxy
+            daily_vol = sum(m.get("sellCount24h", m.get("biddingCount", 0)) for m in data_list)
+            
+            return {"price": price, "supply": total_supply, "volume": daily_vol}, None
+        return None, f"API Error {r.status_code}"
+    except Exception as e: return None, f"Request Failed: {str(e)}"
 
 # --- USER DASHBOARD ---
 def user_dashboard():
@@ -148,42 +148,40 @@ def user_dashboard():
     t = st.tabs(["🏠 Homepage", "🛰️ Predictor", "⚙️ Management"])
     
     with t[0]:
-        st.subheader("Add New Item from Database")
+        st.subheader("Add Item from Local Database")
         if DB_DATA:
-            item_list = sorted(list(DB_DATA.keys()))
-            selected_item = st.selectbox("Search Database:", [""] + item_list)
-            if selected_item:
-                if st.button("✅ Add to Portfolio"):
-                    if selected_item in df_raw["Item Name"].values:
-                        st.warning("Item already exists.")
-                    else:
-                        new_row = pd.DataFrame([{
-                            "Item Name": selected_item,
-                            "Type": DB_DATA[selected_item].get("type", "Unknown"),
-                            "AT Price": 0, "AT Supply": 0, "Price (CNY)": 0, "Supply": 0, "Daily Vol": 0,
-                            "Last Updated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                        }])
-                        df_updated = pd.concat([df_raw, new_row], ignore_index=True)
-                        save_portfolio(st.session_state.user_email, df_updated)
-                        st.success("Added!")
-                        st.rerun()
+            selected_item = st.selectbox("Search csgo_api_v47:", [""] + sorted(list(DB_DATA.keys())))
+            if selected_item and st.button("✅ Add to Monitor"):
+                if selected_item in df_raw["Item Name"].values:
+                    st.warning("Item already tracked.")
+                else:
+                    new_item = pd.DataFrame([{
+                        "Item Name": selected_item,
+                        "Type": DB_DATA[selected_item].get("type", "Unknown"),
+                        "Price (CNY)": 0, "Supply": 0, "Daily Vol": 0,
+                        "Last Updated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                    }])
+                    df_raw = pd.concat([df_raw, new_item], ignore_index=True)
+                    save_portfolio(st.session_state.user_email, df_raw)
+                    st.success("Item added!")
+                    st.rerun()
 
     with t[1]:
         if not df_raw.empty:
             st.dataframe(df_raw, use_container_width=True, hide_index=True)
-        else: st.info("Add items in Homepage")
+        else: st.info("Use Homepage to add items first.")
 
     with t[2]:
         new_key = st.text_input("SteamDT API Key", value=st.session_state.api_key, type="password")
-        if st.button("💾 Save Key"):
+        if st.button("💾 Update API Key"):
             save_api_key(st.session_state.user_email, new_key)
             st.session_state.api_key = new_key
-            st.success("Saved!")
-        
-        if st.button("🔄 Global Sync"):
-            if not st.session_state.api_key: st.error("No API Key")
+            st.success("Key updated.")
+
+        if st.button("🔄 Sync with SteamDT"):
+            if not st.session_state.api_key: st.error("Please set API Key.")
             else:
-                p = st.progress(0)
+                progress_bar = st.progress(0)
                 for i, (idx, row) in enumerate(df_raw.iterrows()):
                     data, err = fetch_market_data(row['Item Name'], st.session_state.api_key)
                     if data:
@@ -191,15 +189,14 @@ def user_dashboard():
                         df_raw.at[idx, "Supply"] = data["supply"]
                         df_raw.at[idx, "Daily Vol"] = data["volume"]
                         df_raw.at[idx, "Last Updated"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                    p.progress((i + 1) / len(df_raw))
-                    time.sleep(1.5) # Avoid rate limits
+                    progress_bar.progress((i + 1) / len(df_raw))
+                    time.sleep(1.0) # Rate limiting safeguard
                 save_portfolio(st.session_state.user_email, df_raw)
-                st.success("Sync Complete")
+                st.success("Sync Complete!")
 
 def main():
     if not st.session_state.user_verified and not st.session_state.admin_verified:
         gatekeeper.show_login(conn)
-    elif st.session_state.admin_verified: pass # Admin logic here
     else: user_dashboard()
 
 if __name__ == "__main__":

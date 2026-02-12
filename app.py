@@ -46,10 +46,24 @@ st.markdown("""
 # --- CONNECTION ---
 conn = st.connection("gsheets", type=GSheetsConnection, ttl=0)
 
-if "admin_verified" not in st.session_state: st.session_state.admin_verified = False
-if "user_verified" not in st.session_state: st.session_state.user_verified = False
-if st.query_params.get("role") == "admin": st.session_state.admin_verified = True
-elif st.query_params.get("role") == "user": st.session_state.user_verified = True
+# --- SESSION STATE INITIALIZATION ---
+if "admin_verified" not in st.session_state: 
+    st.session_state.admin_verified = False
+if "user_verified" not in st.session_state: 
+    st.session_state.user_verified = False
+if "user_email" not in st.session_state:
+    st.session_state.user_email = None
+if "user_name" not in st.session_state:
+    st.session_state.user_name = None
+if "w_abs" not in st.session_state: 
+    st.session_state.w_abs = DEFAULT_WEIGHTS['abs']
+if "w_mom" not in st.session_state: 
+    st.session_state.w_mom = DEFAULT_WEIGHTS['mom']
+if "w_div" not in st.session_state: 
+    st.session_state.w_div = DEFAULT_WEIGHTS['div']
+if "api_key" not in st.session_state: 
+    st.session_state.api_key = load_api_key()
+
 
 # --- CORE ENGINE FUNCTIONS ---
 def load_api_key():

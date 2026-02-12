@@ -16,14 +16,13 @@ st.set_page_config(page_title="JDL Terminal", page_icon="📟", layout="wide")
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
 except Exception as e:
-    st.error("Credential Error: Check your Streamlit Secrets for service_account details.")
+    st.error("Credential Error: Waiting for Secrets setup.")
     st.stop()
 
 if "owner_verified" not in st.session_state:
     st.session_state.owner_verified = False
 
 # --- 2. THE GATEKEEPER ---
-
 def gatekeeper():
     st.title("📟 JDL Intelligence System")
     tabs = st.tabs(["Login", "Request Access", "Admin Portal"])
@@ -36,12 +35,12 @@ def gatekeeper():
             if st.form_submit_button("Submit Request"):
                 if req_name and req_email:
                     try:
-                        # Fetch and Update
+                        # Pull current sheet -> Append -> Push back
                         df = conn.read()
                         new_data = pd.DataFrame([{"Name": req_name, "Email": req_email, "Date": str(date.today())}])
                         updated_df = pd.concat([df, new_data], ignore_index=True)
                         conn.update(data=updated_df)
-                        st.success("✅ Request saved to secure database!")
+                        st.success("✅ Request saved to Google Sheets!")
                     except Exception as e:
                         st.error(f"❌ Connection Error: {e}")
                 else:
@@ -71,7 +70,7 @@ def admin_dashboard():
         df = conn.read()
         st.dataframe(df, use_container_width=True)
     except:
-        st.error("Could not load data from the Cloud.")
+        st.error("Could not load requests.")
 
 pg = st.navigation([
     st.Page(terminal_page, title="Terminal", icon="📟"),

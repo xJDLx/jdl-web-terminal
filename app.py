@@ -11,12 +11,8 @@ except:
 
 st.set_page_config(page_title="JDL Terminal", page_icon="📟", layout="wide")
 
-# Force a fresh connection without caching (ttl=0)
-try:
-    conn = st.connection("gsheets", type=GSheetsConnection, ttl=0)
-except Exception as e:
-    st.error("Credential Error: Streamlit cannot read your Secrets.")
-    st.stop()
+# We set ttl=0 to ensure the website shows the latest data from the sheet
+conn = st.connection("gsheets", type=GSheetsConnection, ttl=0)
 
 if "owner_verified" not in st.session_state:
     st.session_state.owner_verified = False
@@ -34,15 +30,14 @@ def gatekeeper():
             if st.form_submit_button("Submit Request"):
                 if req_name and req_email:
                     try:
-                        # Fetch current data and append
+                        # Pull current data, add new row, and push back
                         df = conn.read()
                         new_row = pd.DataFrame([{"Name": req_name, "Email": req_email, "Date": str(date.today())}])
                         updated_df = pd.concat([df, new_row], ignore_index=True)
                         conn.update(data=updated_df)
-                        st.success("✅ Request saved to Google Sheets!")
+                        st.success("✅ Request saved! Refresh the Admin panel to see it.")
                     except Exception as e:
-                        st.error("❌ Permission Denied")
-                        st.exception(e)
+                        st.error(f"Error saving: {e}")
                 else:
                     st.error("Please fill in all fields.")
 
@@ -59,20 +54,33 @@ if not st.session_state.owner_verified:
     gatekeeper()
     st.stop()
 
-# --- 4. ADMIN DASHBOARD ---
+# --- 4. ADMIN PAGES ---
+def terminal_page():
+    st.title("📟 JDL Intelligence Terminal")
+    st.success("Admin Session Active")
+    st.write("Welcome back, Commander.")
+
 def admin_dashboard():
     st.title("👥 User Administration")
-    st.info(f"Connected as: `jdl-terminal-bot@jdl-terminal.iam.gserviceaccount.com`")
+    st.info("Showing live requests from Google Sheets.")
 
     try:
+        # conn.read(ttl=0) ensures we don't show old cached errors
         df = conn.read()
-        st.dataframe(df, use_container_width=True)
+        if not df.empty:
+            st.dataframe(df, use_container_width=True)
+        else:
+            st.warning("The spreadsheet is currently empty.")
+        
+        if st.button("Force Refresh Data"):
+            st.rerun()
+            
     except Exception as e:
-        st.error("Database Connection Failed")
+        st.error("Could not display data.")
         st.exception(e)
 
 pg = st.navigation([
-    st.Page(lambda: st.title("📟 Terminal Online"), title="Terminal", icon="📟"),
+    st.Page(terminal_page, title="Terminal", icon="📟"),
     st.Page(admin_dashboard, title="Manage Users", icon="👥")
 ])
 pg.run()

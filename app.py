@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import date
+from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
 
 # --- 1. CONFIGURATION ---
@@ -11,7 +11,7 @@ except:
 
 st.set_page_config(page_title="JDL Terminal", page_icon="📟", layout="wide")
 
-# We use ttl=0 to bypass all caching and get live data
+# Connect to GSheets (No caching for live tracking)
 conn = st.connection("gsheets", type=GSheetsConnection, ttl=0)
 
 if "owner_verified" not in st.session_state:
@@ -30,16 +30,20 @@ def gatekeeper():
             if st.form_submit_button("Submit Request"):
                 if req_name and req_email:
                     try:
-                        # We specify worksheet="Sheet1" to be safe
                         df = conn.read(worksheet="Sheet1")
-                        new_row = pd.DataFrame([{"Name": req_name, "Email": req_email, "Date": str(date.today())}])
+                        new_row = pd.DataFrame([{
+                            "Name": req_name, 
+                            "Email": req_email, 
+                            "Date": datetime.now().strftime("%Y-%m-%d"),
+                            "Status": "Pending",
+                            "Last Login": "Never",
+                            "Session": "Offline"
+                        }])
                         updated_df = pd.concat([df, new_row], ignore_index=True)
                         conn.update(worksheet="Sheet1", data=updated_df)
-                        st.success("✅ Request saved to Google Sheets!")
+                        st.success("✅ Request sent! Admin will review.")
                     except Exception as e:
-                        st.error(f"Error saving: {e}")
-                else:
-                    st.error("Please fill in all fields.")
+                        st.error(f"Error: {e}")
 
     with tabs[2]:
         st.subheader("Admin Verification")
@@ -47,6 +51,7 @@ def gatekeeper():
         if st.button("Unlock Admin"):
             if admin_input == MASTER_ADMIN_KEY:
                 st.session_state.owner_verified = True
+                # Update Admin's own status to Online
                 st.rerun()
 
 # --- 3. MAIN ROUTING ---
@@ -54,25 +59,42 @@ if not st.session_state.owner_verified:
     gatekeeper()
     st.stop()
 
-# --- 4. ADMIN PAGES ---
+# --- 4. ADMIN DASHBOARD ---
 def admin_dashboard():
-    st.title("👥 User Administration")
+    st.title("👥 User & Session Management")
     
-    # Check if headers exist in the sheet
-    st.info("Attempting to fetch data from 'Sheet1'...")
-
     try:
-        # Explicitly naming the worksheet handles sync issues
         df = conn.read(worksheet="Sheet1")
         
-        if df is not None and not df.empty:
-            st.dataframe(df, use_container_width=True)
+        if not df.empty:
+            # Formatting the table for better visibility
+            def color_status(val):
+                color = 'green' if val == "Online" else 'red'
+                return f'color: {color}'
+
+            st.subheader("Live User Logs")
+            st.dataframe(df.style.applymap(color_status, subset=['Session']), use_container_width=True)
+            
+            # Approve/Deny Actions
+            st.divider()
+            st.subheader("Manage Requests")
+            col1, col2 = st.columns(2)
+            with col1:
+                user_to_mod = st.selectbox("Select User", df['Name'].tolist())
+            with col2:
+                new_status = st.radio("Set Status", ["Approved", "Pending", "Denied"], horizontal=True)
+            
+            if st.button("Update User Status"):
+                df.loc[df['Name'] == user_to_mod, 'Status'] = new_status
+                conn.update(worksheet="Sheet1", data=df)
+                st.success(f"Updated {user_to_mod} to {new_status}")
+                st.rerun()
+
         else:
-            st.warning("The connection is active, but the sheet appears to be empty or formatted incorrectly.")
-            st.write("Ensure your first row has: **Name**, **Email**, **Date**")
+            st.warning("No data found in Sheet1.")
             
     except Exception as e:
-        st.error("❌ Data Sync Error")
+        st.error("Data Sync Error")
         st.exception(e)
 
 pg = st.navigation([

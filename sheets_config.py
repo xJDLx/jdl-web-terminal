@@ -8,11 +8,30 @@ def init_google_sheets():
              'https://www.googleapis.com/auth/drive']
     
     try:
+        if not os.path.exists('google_sheets_credentials.json'):
+            raise FileNotFoundError(
+                "\n1. Go to Google Cloud Console\n"
+                "2. Create a project and enable Google Sheets API\n"
+                "3. Create service account credentials\n"
+                "4. Download JSON key file\n"
+                "5. Save as 'google_sheets_credentials.json' in project root"
+            )
+        
         creds = ServiceAccountCredentials.from_json_keyfile_name('google_sheets_credentials.json', scope)
         client = gspread.authorize(creds)
+        
+        # Test connection by trying to open the sheet
+        try:
+            client.open("CSGO_Database")
+        except gspread.SpreadsheetNotFound:
+            raise Exception(
+                "\n1. Create a Google Sheet named 'CSGO_Database'\n"
+                "2. Share it with the email from your credentials file"
+            )
+            
         return client
     except Exception as e:
-        raise Exception(f"Failed to initialize Google Sheets: {e}")
+        raise Exception(f"Google Sheets Setup Required:\n{str(e)}")
 
 def read_sheet(sheet_name, worksheet_name):
     """Read data from Google Sheet"""

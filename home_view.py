@@ -95,8 +95,14 @@ def tab_settings(conn):
         st.subheader("🔌 API Configuration")
         
         try:
-            df = read_sheet("CSGO_Database", "Sheet1")
-            df = df.fillna("")
+            try:
+                df = read_sheet("CSGO_Database", "Sheet1")
+                df = df.fillna("")
+            except Exception as e:
+                st.error("Cannot connect to Google Sheets. Please check:")
+                st.code(str(e))
+                st.info("Need help? Contact support with error details above.")
+                return
             
             # Get Email from URL
             email_param = st.query_params.get("u")

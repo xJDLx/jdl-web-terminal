@@ -158,13 +158,13 @@ def show_monitor_view(conn, api_key: str):
 def show_add_items_view(conn, api_key: str):
     """Add new items to monitor"""
     st.subheader("Add New Item")
+    st.write("📌 Enter the exact item name from Steam Community Market")
     
     api = SteamdtAPI(api_key)
     
     with st.form("add_item_form"):
-        st.info("📌 Use the exact market hash name from Steam Community Market")
         market_hash_name = st.text_input(
-            "Item Name (from Steam Market)", 
+            "Item Name", 
             placeholder="e.g., AK-47 | Phantom Disruptor (Field-Tested)"
         )
         
@@ -178,17 +178,20 @@ def show_add_items_view(conn, api_key: str):
         
         if submitted:
             if market_hash_name:
-                # Verify item exists in API
-                price_data = api.get_item_price(market_hash_name)
+                with st.spinner("Verifying item..."):
+                    # Verify item exists in API
+                    price_data = api.get_item_price(market_hash_name)
                 
                 if price_data is None:
                     st.error("❌ Item not found. Make sure you're using the exact name from Steam Community Market.")
                     st.info("Example: 'AK-47 | Phantom Disruptor (Field-Tested)' or 'AWP Dragon Lore (Factory New)'")
                 else:
                     try:
-                        # Load existing items
+                        # Load existing items (or create empty dataframe)
                         try:
                             items_df = conn.read(worksheet="Items", ttl=0)
+                            # Filter out empty rows if any
+                            items_df = items_df.dropna(how='all')
                         except:
                             items_df = pd.DataFrame(columns=[
                                 'Item Name', 'Market Hash Name', 'Added Date', 
@@ -197,37 +200,42 @@ def show_add_items_view(conn, api_key: str):
                             ])
                         
                         # Check if item already being tracked
-                        if not items_df.empty and (items_df['Market Hash Name'] == market_hash_name).any():
-                            st.error("⚠️ Item is already being tracked")
-                        else:
-                            # Get average price
+                        if not items_df.empty and 'Market Hash Name' in items_df.columns:
+                            if (items_df['Market Hash Name'].astype(str).str.strip() == market_hash_name.strip()).any():
+                                st.error("⚠️ Item is already being tracked")
+                                return
+                        
+                        # Get average price
+                        with st.spinner("Fetching price data..."):
                             avg_price_data = api.get_average_price(market_hash_name)
                             avg_price = avg_price_data.get('avgPrice', 'N/A') if avg_price_data else 'N/A'
-                            
-                            # Add new item (use market hash name as display name too)
-                            new_item = {
-                                'Item Name': market_hash_name,
-                                'Market Hash Name': market_hash_name,
-                                'Added Date': datetime.now().strftime("%Y-%m-%d"),
-                                'Current Price': price_data.get('price', 'N/A'),
-                                'Avg Price (7d)': avg_price,
-                                'Price Change': '0%',
-                                'Status': 'Active',
-                                'Last Updated': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            }
-                            
-                            items_df = pd.concat(
-                                [items_df, pd.DataFrame([new_item])], 
-                                ignore_index=True
-                            )
-                            
-                            conn.update(worksheet="Items", data=items_df)
-                            st.success(f"✅ Added {market_hash_name} to monitor!")
-                            st.rerun()
+                        
+                        # Add new item (use market hash name as display name too)
+                        new_item = {
+                            'Item Name': market_hash_name,
+                            'Market Hash Name': market_hash_name,
+                            'Added Date': datetime.now().strftime("%Y-%m-%d"),
+                            'Current Price': price_data.get('price', 'N/A'),
+                            'Avg Price (7d)': avg_price,
+                            'Price Change': '0%',
+                            'Status': 'Active',
+                            'Last Updated': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        }
+                        
+                        items_df = pd.concat(
+                            [items_df, pd.DataFrame([new_item])], 
+                            ignore_index=True
+                        )
+                        
+                        conn.update(worksheet="Items", data=items_df)
+                        st.success(f"✅ Added {market_hash_name} to monitor!")
+                        st.info("Go to the '📈 Monitor' tab to see your item")
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Error adding item: {e}")
+                        st.info("Make sure your Google Sheet is properly connected")
             else:
-                st.error("Please enter the exact item name from Steam Market.")
+                st.error("Please enter an item name.")
 
 
 def show_item_details(item_row, api: SteamdtAPI):
@@ -253,46 +261,63 @@ def show_settings_view(conn, api_key: str):
     """Settings for item monitor"""
     st.subheader("Settings")
     
-    # API Key section
-    with st.expander("🔑 API Key Management"):
-        st.warning("Your API Key is stored securely. Handle carefully!")
-        
-        if st.button("🔄 Reset API Key"):
-            st.session_state.api_key_reset = True
-        
-        if st.session_state.get("api_key_reset"):
-            st.info("API Key reset. Please re-enter your key in the main view.")
-            # Delete config file
-            import os
-            try:
-                os.remove("steamdt_config.json")
-                st.success("API Key removed")
-            except:
-                pass
-    
-    # Database management
+    # Database initialization
     with st.expander("💾 Database Management"):
-        col1, col2 = st.columns(2)
+        st.write("**Items Database**")
+        col1, col2, col3 = st.columns(3)
         
         with col1:
+            if st.button("🔄 Create/Reset Database", use_container_width=True):
+                if initialize_items_database(conn):
+                    st.success("Database ready!")
+                    st.rerun()
+        
+        with col2:
             if st.button("📥 Export Items", use_container_width=True):
                 try:
                     items_df = conn.read(worksheet="Items", ttl=0)
-                    csv_data = items_df.to_csv(index=False)
-                    st.download_button(
-                        label="Download CSV",
-                        data=csv_data,
-                        file_name=f"monitored_items_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                        mime="text/csv"
-                    )
-                except:
-                    st.error("No items to export")
+                    if not items_df.empty:
+                        csv_data = items_df.to_csv(index=False)
+                        st.download_button(
+                            label="Download CSV",
+                            data=csv_data,
+                            file_name=f"monitored_items_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                            mime="text/csv",
+                            use_container_width=True
+                        )
+                    else:
+                        st.info("No items to export")
+                except Exception as e:
+                    st.error(f"Export failed: {e}")
         
-        with col2:
+        with col3:
             if st.button("🗑️ Clear All Items", use_container_width=True):
-                if st.button("⚠️ Confirm deletion", key="confirm_delete"):
-                    conn.update(worksheet="Items", data=pd.DataFrame())
-                    st.success("All items cleared")
+                st.warning("This cannot be undone!")
+                if st.button("⚠️ Confirm deletion", key="confirm_delete", use_container_width=True):
+                    try:
+                        empty_df = pd.DataFrame(columns=[
+                            'Item Name', 'Market Hash Name', 'Added Date', 
+                            'Current Price', 'Avg Price (7d)', 'Price Change', 
+                            'Status', 'Last Updated'
+                        ])
+                        conn.update(worksheet="Items", data=empty_df)
+                        st.success("All items cleared")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Clear failed: {e}")
+    
+    # API Key management
+    with st.expander("🔑 API Key Management"):
+        st.warning("Your API Key is stored securely. Handle carefully!")
+        
+        if st.button("🔄 Reset API Key", use_container_width=True):
+            import os
+            try:
+                os.remove("steamdt_config.json")
+                st.success("API Key removed. Please re-enter it.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Failed to reset: {e}")
     
     # Refresh settings
     with st.expander("⚙️ Refresh Settings"):
@@ -302,7 +327,7 @@ def show_settings_view(conn, api_key: str):
             max_value=120,
             value=30
         )
-        st.info(f"Prices will auto-refresh every {refresh_interval} minutes")
+        st.info(f"💡 Prices will auto-refresh every {refresh_interval} minutes")
 
 
 def update_all_prices(items_df: pd.DataFrame, api: SteamdtAPI, conn) -> pd.DataFrame:

@@ -68,6 +68,15 @@ def load_local_database():
             data = json.load(f)
         if isinstance(data, list):
             return { (item.get("name") or item.get("market_hash_name")): item for item in data }, None
+        elif isinstance(data, dict) and "items" in data:
+            # Handle {"items": ["item1", "item2", ...]} format
+            items = data.get("items", [])
+            if isinstance(items[0], str) if items else False:
+                # Simple list of strings
+                return {item: {"name": item} for item in items}, None
+            else:
+                # List of objects
+                return {(item.get("name") or item.get("market_hash_name")): item for item in items}, None
         return data, None
     except Exception as e: return None, str(e)
 
@@ -100,6 +109,21 @@ def save_history_entry(item_name, price, supply, sales_detected):
         "Supply": supply, "Sales Detected": sales_detected
     }])
     pd.concat([df_hist, new_entry], ignore_index=True).to_csv(HISTORY_FILE, index=False)
+
+def save_local_database(db_data):
+    """Safely save database to JSON file"""
+    try:
+        db, _ = load_local_database()
+        if db:
+            # Extract just the item keys/names
+            items = list(db.keys())
+            with open(DB_FILE, "w", encoding="utf-8-sig") as f:
+                json.dump({"items": items}, f, ensure_ascii=False, indent=2)
+            st.cache_data.clear()  # Clear cache to reload
+            return True, None
+        return False, "Failed to load database"
+    except Exception as e:
+        return False, str(e)
 
 def get_bought_momentum(item_name):
     df_h = load_history()

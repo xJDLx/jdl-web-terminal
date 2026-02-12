@@ -16,7 +16,7 @@ st.set_page_config(page_title="JDL Terminal", page_icon="📟", layout="wide")
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
 except Exception as e:
-    st.error("Credential Error: Streamlit cannot read your Secrets. Check TOML format.")
+    st.error(f"Configuration Error: {e}")
     st.stop()
 
 if "owner_verified" not in st.session_state:
@@ -35,14 +35,15 @@ def gatekeeper():
             if st.form_submit_button("Submit Request"):
                 if req_name and req_email:
                     try:
-                        # Attempt to read and update
+                        # Fetch and Update
                         df = conn.read()
                         new_data = pd.DataFrame([{"Name": req_name, "Email": req_email, "Date": str(date.today())}])
                         updated_df = pd.concat([df, new_data], ignore_index=True)
                         conn.update(data=updated_df)
                         st.success("✅ Request saved to Google Sheets!")
                     except Exception as e:
-                        st.error(f"❌ Permission Error: Ensure the bot email is an EDITOR. Error: {e}")
+                        st.error("❌ Google Sheets Error")
+                        st.exception(e) 
                 else:
                     st.error("Please fill in all fields.")
 
@@ -62,25 +63,17 @@ if not st.session_state.owner_verified:
 # --- 4. ADMIN PAGES ---
 def admin_dashboard():
     st.title("👥 User Administration")
+    st.subheader("Live Database Status")
     
-    # Show the email to make sharing easier
     try:
-        bot_email = st.secrets["connections"]["gsheets"]["client_email"]
-        st.info(f"📋 **Step 1:** Copy this email: `{bot_email}`")
-        st.info("🔒 **Step 2:** Share your Google Sheet with it as **Editor**.")
-    except:
-        st.warning("Bot email not found in Secrets.")
-
-    st.subheader("Live Requests")
-    try:
-        # We specify the sheet name to ensure it finds the right data
+        # Pulling live data
         df = conn.read()
-        if not df.empty:
-            st.dataframe(df, use_container_width=True)
-        else:
-            st.info("The sheet is connected but empty. Try submitting a request!")
+        st.success("📡 Database Connection: ONLINE")
+        st.dataframe(df, use_container_width=True)
     except Exception as e:
-        st.error(f"Could not load requests: {e}")
+        st.error("📡 Database Connection: OFFLINE")
+        st.info("Check if both Sheets API and Drive API are enabled in Google Cloud.")
+        st.exception(e)
 
 pg = st.navigation([
     st.Page(lambda: st.title("📟 Terminal Online"), title="Terminal", icon="📟"),

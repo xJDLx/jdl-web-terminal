@@ -5,6 +5,10 @@ from datetime import datetime
 
 # --- 1. HEARTBEAT (Keeps User Online) ---
 def run_heartbeat(conn):
+    # SAFETY CHECK: If Admin is previewing, DO NOT update database
+    if st.session_state.get("admin_verified"):
+        return
+
     if "status_checked" not in st.session_state:
         email = st.query_params.get("u")
         if email:
@@ -21,7 +25,12 @@ def run_heartbeat(conn):
 
 # --- 2. TAB FUNCTIONS ---
 def tab_overview():
-    st.header(f"👋 Welcome, {st.session_state.get('user_name', 'Agent')}")
+    # Show "Admin Preview" if admin is watching
+    user_name = st.session_state.get('user_name', 'Agent')
+    if st.session_state.get("admin_verified"):
+        user_name = "Admin (Preview Mode)"
+        
+    st.header(f"👋 Welcome, {user_name}")
     st.info("System Status: 🟢 ONLINE")
     c1, c2, c3 = st.columns(3)
     c1.metric("Tasks", "3")
@@ -49,7 +58,7 @@ def tab_inventory():
 def tab_settings(conn):
     st.header("⚙️ Settings")
     
-    # --- THEME TOGGLE (The New Feature) ---
+    # THEME TOGGLE
     st.subheader("🎨 Appearance")
     current_theme = st.session_state.get("theme", "Dark")
     is_dark = True if current_theme == "Dark" else False
@@ -58,22 +67,26 @@ def tab_settings(conn):
         st.session_state.theme = "Dark"
     else:
         st.session_state.theme = "Light"
-        
-    if st.button("Apply Theme Change"):
+    
+    # Only show "Apply" if it actually changed
+    if st.button("Apply Theme"):
         st.rerun()
 
     st.divider()
-    if st.button("🚪 Log Out", type="primary"):
-        st.query_params.clear()
-        st.session_state.clear()
-        st.rerun()
+    
+    # Hide "Logout" if Admin is just previewing
+    if not st.session_state.get("admin_verified"):
+        if st.button("🚪 Log Out", type="primary"):
+            st.query_params.clear()
+            st.session_state.clear()
+            st.rerun()
+    else:
+        st.info("ℹ️ Logout disabled in Preview Mode.")
 
 # --- 3. MASTER INTERFACE ---
 def show_user_interface(conn):
-    # RUN HEARTBEAT
     run_heartbeat(conn)
     
-    # SHOW TABS
     t1, t2, t3, t4 = st.tabs(["🏠 Overview", "🔮 Predictions", "📦 Inventory", "⚙️ Settings"])
     
     with t1: tab_overview()

@@ -8,11 +8,9 @@ import home_view
 st.set_page_config(page_title="JDL System", page_icon="🏢", layout="wide", initial_sidebar_state="collapsed")
 
 # 2. THEME ENGINE
-if "theme" not in st.session_state:
-    st.session_state.theme = "Dark"
+if "theme" not in st.session_state: st.session_state.theme = "Dark"
 
 if st.session_state.theme == "Light":
-    # FORCE LIGHT MODE CSS
     st.markdown("""
         <style>
         [data-testid="stAppViewContainer"] {background-color: #ffffff; color: black;}
@@ -23,17 +21,15 @@ if st.session_state.theme == "Light":
         </style>
     """, unsafe_allow_html=True)
 else:
-    # FORCE DARK MODE CSS
     st.markdown("""
         <style>
-        /* Default Streamlit Dark Mode is usually fine, but we enforce Tab styling */
         .stTabs [data-baseweb="tab-list"] {background-color: #0e1117;}
         .stTabs [data-baseweb="tab"] {background-color: #0e1117; color: #b2b2b2;}
         .stTabs [aria-selected="true"] {color: #00ff41; border-bottom-color: #00ff41;}
         </style>
     """, unsafe_allow_html=True)
 
-# 3. CONNECTION & ROUTING
+# 3. CONNECTION
 conn = st.connection("gsheets", type=GSheetsConnection, ttl=0)
 
 if "admin_verified" not in st.session_state: st.session_state.admin_verified = False
@@ -47,17 +43,27 @@ def main():
         gatekeeper.show_login(conn)
         return
 
+    # --- ADMIN VIEW ---
     if st.session_state.admin_verified:
-        t1, t2, t3, t4 = st.tabs(["📊 Dashboard", "🗂️ Registry", "⚙️ Logs", "🔒 Logout"])
+        # NEW: Added "User View" to the tabs
+        t1, t2, t3, t4, t5 = st.tabs(["📊 Dashboard", "🗂️ Registry", "👁️ User View", "⚙️ Logs", "🔒 Logout"])
+        
         with t1: admin_view.show_dashboard(conn)
         with t2: admin_view.show_catalog_view(conn)
-        with t3: st.info("System Normal.")
-        with t4:
+        
+        # THIS IS THE SWITCHER TAB
+        with t3:
+            st.warning("⚠️ You are viewing the User Interface as an Administrator.")
+            home_view.show_user_interface(conn)
+            
+        with t4: st.info("System Normal.")
+        with t5:
             if st.button("Logout"):
                 st.query_params.clear()
                 st.session_state.clear()
                 st.rerun()
 
+    # --- USER VIEW ---
     elif st.session_state.user_verified:
         home_view.show_user_interface(conn)
 

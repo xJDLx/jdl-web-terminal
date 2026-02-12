@@ -233,24 +233,65 @@ def user_dashboard():
         pred_res = df_raw.apply(lambda row: get_prediction_metrics(st.session_state.user_email, row, weights), axis=1, result_type='expand')
         df_raw = pd.concat([df_raw, pred_res], axis=1)
 
-    t = st.tabs(["🛰️ Predictor", "📅 Daily", "🏛️ Permanent", "⚙️ Management"])
+    # Added "🏠 Homepage" as the first tab
+    t = st.tabs(["🏠 Homepage", "🛰️ Predictor", "📅 Daily", "🏛️ Permanent", "⚙️ Management"])
     
     with t[0]:
+        st.subheader("Add New Item to Portfolio")
+        if DB_DATA:
+            # Dropdown menu containing only items from the local database
+            item_list = sorted(list(DB_DATA.keys()))
+            selected_item = st.selectbox("Search for an item in Database:", [""] + item_list)
+            
+            if selected_item:
+                item_details = DB_DATA[selected_item]
+                st.info(f"Adding: {selected_item}")
+                
+                # Input for base/initial values
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    base_price = st.number_input("Analysis (AT) Price", value=0.0)
+                with col_b:
+                    base_supply = st.number_input("Analysis (AT) Supply", value=0)
+                
+                if st.button("✅ Add to Portfolio"):
+                    if selected_item in df_raw["Item Name"].values:
+                        st.warning("Item already in portfolio.")
+                    else:
+                        new_row = pd.DataFrame([{
+                            "Item Name": selected_item,
+                            "Type": item_details.get("type", "Unknown"),
+                            "AT Price": base_price,
+                            "AT Supply": base_supply,
+                            "Sess Price": 0,
+                            "Sess Supply": 0,
+                            "Price (CNY)": 0,
+                            "Supply": 0,
+                            "Daily Sales": 0,
+                            "Last Updated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                        }])
+                        df_updated = pd.concat([df_raw, new_row], ignore_index=True)
+                        save_portfolio(st.session_state.user_email, df_updated)
+                        st.success(f"{selected_item} added!")
+                        st.rerun()
+        else:
+            st.error(DB_ERROR or "No database loaded.")
+
+    with t[1]:
         if not df_raw.empty:
             st.dataframe(df_raw.sort_values("score", ascending=False), use_container_width=True, hide_index=True)
-        else: st.info("Add items in Management")
+        else: st.info("Add items in Homepage or Management")
 
-    with t[3]:
-        # --- STEAMDT API KEY CONFIGURATION ---
+    with t[4]:
         st.subheader("🔑 SteamDT API Configuration")
         col_api, col_btn = st.columns([0.8, 0.2])
         
         with col_api:
-            new_key = st.text_input("Enter SteamDT API Key", value=st.session_state.api_key, type="password", help="Get this from your SteamDT profile.")
+            new_key = st.text_input("Enter SteamDT API Key", value=st.session_state.api_key, type="password")
         
         with col_btn:
-            st.write("") # Padding
-            st.write("") # Padding
+            st.write("") 
+            st.write("")
             if st.button("💾 Save Key"):
                 if new_key:
                     save_api_key(st.session_state.user_email, new_key)

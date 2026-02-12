@@ -8,8 +8,14 @@ def show_command_center(conn):
     
     try:
         # 1. FETCH & CLEAN
-        df = read_sheet("CSGO_Database", "Sheet1")
-        df = df.fillna("")
+        try:
+            df = read_sheet("CSGO_Database", "Sheet1")
+            df = df.fillna("")
+        except Exception as e:
+            st.error("Cannot connect to Google Sheets. Please check:")
+            st.code(str(e))
+            st.info("Need help? Contact support with error details above.")
+            return
         
         # --- 🚨 PENDING REQUESTS ALERT SYSTEM ---
         pending_users = df[df['Status'] == 'Pending']
@@ -90,7 +96,7 @@ def show_command_center(conn):
                     save_df['Expiry'] = save_df['Expiry'].astype(str).replace('NaT', '')
                 if 'Last Login' in save_df.columns:
                     save_df['Last Login'] = save_df['Last Login'].astype(str).replace('NaT', '')
-                conn.update(worksheet="Sheet1", data=save_df)
+                update_sheet("CSGO_Database", "Sheet1", save_df)
                 st.rerun()
 
         with col_search:
@@ -111,8 +117,11 @@ def show_command_center(conn):
         
         try:
             # Fetch predictions
-            predictions_df = read_sheet("CSGO_Database", "Predictions")
-            predictions_df = predictions_df.fillna("")
+            try:
+                predictions_df = read_sheet("CSGO_Database", "Predictions")
+                predictions_df = predictions_df.fillna("")
+            except Exception as e:
+                st.warning("Creating new Predictions worksheet...")
         except:
             # Create Predictions worksheet if it doesn't exist
             predictions_df = pd.DataFrame({
@@ -211,4 +220,6 @@ def show_command_center(conn):
             st.success("✅ Database Saved!")
 
     except Exception as e:
-        st.error(f"System Error: {e}")
+        st.error("System Error:")
+        st.code(str(e))
+        st.info("If this error persists, please check your Google Sheets configuration and credentials.")

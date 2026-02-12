@@ -70,13 +70,15 @@ def save_api_key(user_email, key):
         with open(path, "w") as f: f.write(key.strip())
 
 def load_portfolio(user_email):
-    cols = ["Item Name", "Type", "AT Price", "AT Supply", "Sess Price", "Sess Supply", "Price (CNY)", "Supply", "Daily Sales", "Last Updated"]
+    # Updated Headers as requested
+    cols = ["Item name", "Entry price", "Entry supply", "Current price", "current supply", 
+            "supply change number(%)", "price change number(%)", "Entry date", "Score", "Reason", "Daily sales"]
     path = get_user_portfolio_path(user_email)
     if path and os.path.exists(path):
         try:
             df = pd.read_csv(path, encoding="utf-8-sig")
             for c in cols:
-                if c not in df.columns: df[c] = 0
+                if c not in df.columns: df[c] = 0 if "(%)" not in c else 0.0
             return df[cols]
         except: return pd.DataFrame(columns=cols)
     return pd.DataFrame(columns=cols)
@@ -84,8 +86,8 @@ def load_portfolio(user_email):
 def save_portfolio(user_email, df):
     path = get_user_portfolio_path(user_email)
     if path: 
-        # Ensure we only save the core columns, not calculated display columns
-        save_cols = ["Item Name", "Type", "AT Price", "AT Supply", "Sess Price", "Sess Supply", "Price (CNY)", "Supply", "Daily Sales", "Last Updated"]
+        save_cols = ["Item name", "Entry price", "Entry supply", "Current price", "current supply", 
+                     "supply change number(%)", "price change number(%)", "Entry date", "Score", "Reason", "Daily sales"]
         df[save_cols].to_csv(path, index=False, encoding="utf-8-sig")
 
 def load_history(user_email):
@@ -96,7 +98,7 @@ def load_history(user_email):
             df['Date'] = pd.to_datetime(df['Date'])
             return df
         except: pass
-    return pd.DataFrame(columns=["Date", "Item Name", "Price (CNY)", "Supply", "Sales Detected"])
+    return pd.DataFrame(columns=["Date", "Item Name", "Price (CNY)", "Supply"])
 
 def save_history_entry(user_email, item_name, price, supply):
     df_hist = load_history(user_email)
@@ -125,25 +127,31 @@ def get_bought_momentum(user_email, item_name):
     
     return int(b_3h), int(b_today), int(b_yesterday)
 
-def get_prediction_metrics(user_email, row, weights):
-    # AT Values are the base points for calculation
-    at_price, at_supply = row["AT Price"], row["AT Supply"]
-    current_price, current_supply = row["Price (CNY)"], row["Supply"]
+def calculate_metrics(user_email, row, weights):
+    # Mapping new headers to calculation logic
+    e_price, e_supply = row["Entry price"], row["Entry supply"]
+    c_price, c_supply = row["Current price"], row["current supply"]
     
-    b_3h, b_today, b_yest = get_bought_momentum(user_email, row['Item Name'])
+    # Calculate Changes (%)
+    supply_change = ((e_supply - c_supply) / max(1, e_supply)) * 100
+    price_change = ((c_price - e_price) / max(0.01, e_price)) * 100
     
-    # AT Supply Choke calculation
-    supply_diff = at_supply - current_supply
-    s_pct = supply_diff / max(1, at_supply)
-    abs_pts = np.clip((s_pct * 100) * 10, 0, 100)
-
-    # Momentum points based on Daily Sales
+    b_3h, b_today, b_yest = get_bought_momentum(user_email, row['Item name'])
+    
+    # Score Logic
+    abs_pts = np.clip(supply_change * 10, 0, 100)
     mom_pts = 100 if b_today > b_yest and b_today > 0 else (50 if b_3h > 0 else 0)
     
-    total = round((abs_pts * weights['abs']) + (mom_pts * weights['mom']), 1)
-    status = "🥇 THE BEST" if total >= 80 else ("❌ THE WORST" if total < 15 else "⚖️ NEUTRAL")
+    total_score = round((abs_pts * weights['abs']) + (mom_pts * weights['mom']), 1)
+    status = "🥇 THE BEST" if total_score >= 80 else ("❌ THE WORST" if total_score < 15 else "⚖️ NEUTRAL")
     
-    return pd.Series({"score": total, "reason": status, "Daily Sales": b_today})
+    return pd.Series({
+        "supply change number(%)": round(supply_change, 2),
+        "price change number(%)": round(price_change, 2),
+        "Score": total_score,
+        "Reason": status,
+        "Daily sales": b_today
+    })
 
 def fetch_market_data(item_hash, api_key):
     try:
@@ -173,12 +181,13 @@ def user_dashboard():
     if not df_raw.empty:
         weights = {'abs': st.session_state.w_abs, 'mom': st.session_state.w_mom, 'div': st.session_state.w_div}
         
-        # Avoid duplicate columns by dropping calculated ones before recalculating
-        cols_to_drop = [c for c in ["score", "reason", "Daily Sales"] if c in df_raw.columns]
-        df_clean = df_raw.drop(columns=cols_to_drop)
+        # Drop calculated columns to avoid Arrow duplicate error
+        calc_cols = ["supply change number(%)", "price change number(%)", "Score", "Reason", "Daily sales"]
+        df_clean = df_raw.drop(columns=[c for c in calc_cols if c in df_raw.columns])
         
-        pred_metrics = df_clean.apply(lambda row: get_prediction_metrics(user_email, row, weights), axis=1)
-        df_display = pd.concat([df_clean, pred_metrics], axis=1)
+        # Calculate new metrics based on Entry vs Current
+        metrics = df_clean.apply(lambda row: calculate_metrics(user_email, row, weights), axis=1)
+        df_display = pd.concat([df_clean, metrics], axis=1)
     else:
         df_display = df_raw
 
@@ -186,26 +195,25 @@ def user_dashboard():
     
     with t[0]:
         if not df_display.empty:
-            # Fixed duplicate column error by cleaning df_display before display
-            st.dataframe(df_display.sort_values("score", ascending=False), use_container_width=True, hide_index=True)
+            st.dataframe(df_display.sort_values("Score", ascending=False), use_container_width=True, hide_index=True)
         else: st.info("Add items in Homepage")
 
     with t[1]:
-        st.subheader("Add/Edit AT Targets")
+        st.subheader("Manage Entry Data")
         if not df_raw.empty:
-            with st.form("at_target_form"):
-                item_to_edit = st.selectbox("Select Item", df_raw["Item Name"].tolist())
-                current_row = df_raw[df_raw["Item Name"] == item_to_edit].iloc[0]
-                new_at_p = st.number_input("Analysis Target Price", value=float(current_row.get("AT Price", 0.0)))
-                new_at_s = st.number_input("Analysis Target Supply", value=int(current_row.get("AT Supply", 0)))
+            with st.form("entry_data_form"):
+                item_to_edit = st.selectbox("Select Item", df_raw["Item name"].tolist())
+                current_row = df_raw[df_raw["Item name"] == item_to_edit].iloc[0]
                 
-                if st.form_submit_button("Update AT Values"):
-                    df_raw.loc[df_raw["Item Name"] == item_to_edit, ["AT Price", "AT Supply"]] = [new_at_p, new_at_s]
+                new_entry_p = st.number_input("Entry Price", value=float(current_row.get("Entry price", 0.0)))
+                new_entry_s = st.number_input("Entry Supply", value=int(current_row.get("Entry supply", 0)))
+                new_entry_d = st.text_input("Entry Date", value=str(current_row.get("Entry date", datetime.datetime.now().strftime("%Y-%m-%d"))))
+                
+                if st.form_submit_button("Update Entry Points"):
+                    df_raw.loc[df_raw["Item name"] == item_to_edit, ["Entry price", "Entry supply", "Entry date"]] = [new_entry_p, new_entry_s, new_entry_d]
                     save_portfolio(user_email, df_raw)
-                    st.success("Targets updated!")
+                    st.success("Entry points updated!")
                     st.rerun()
-        else:
-            st.info("No items in portfolio to edit targets.")
 
     with t[2]:
         st.subheader("🔑 API Key")
@@ -218,18 +226,14 @@ def user_dashboard():
         if st.button("🔄 Global Sync"):
             if not st.session_state.api_key: st.error("No API Key")
             else:
-                # Sess (Session) tracking
-                df_raw["Sess Price"] = df_raw["Price (CNY)"]
-                df_raw["Sess Supply"] = df_raw["Supply"]
-                
                 p = st.progress(0)
                 for i, (idx, row) in enumerate(df_raw.iterrows()):
-                    data, err = fetch_market_data(row['Item Name'], st.session_state.api_key)
+                    data, err = fetch_market_data(row['Item name'], st.session_state.api_key)
                     if data:
-                        df_raw.at[idx, "Price (CNY)"] = data["price"]
-                        df_raw.at[idx, "Supply"] = data["supply"]
+                        df_raw.at[idx, "Current price"] = data["price"]
+                        df_raw.at[idx, "current supply"] = data["supply"]
                         df_raw.at[idx, "Last Updated"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                        save_history_entry(user_email, row["Item Name"], data["price"], data["supply"])
+                        save_history_entry(user_email, row["Item name"], data["price"], data["supply"])
                     p.progress((i + 1) / len(df_raw))
                     time.sleep(1.2)
                 

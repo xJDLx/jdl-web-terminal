@@ -86,11 +86,32 @@ def tab_predictions(conn):
             with open('csgo_api_v47.json', 'r') as f:
                 api_data = json.load(f)
                 
+            # Extract relevant CSGO data
+            teams = []
+            matches = []
+            for match in api_data.get('matches', []):
+                team1 = match.get('team1', {}).get('name', '')
+                team2 = match.get('team2', {}).get('name', '')
+                if team1 and team1 not in teams:
+                    teams.append(team1)
+                if team2 and team2 not in teams:
+                    teams.append(team2)
+                matches.append(f"{team1} vs {team2}")
+
             with st.form("new_prediction"):
-                title = st.text_input("Title", max_chars=50)
-                description = st.text_area("Description", max_chars=200)
+                match = st.selectbox("Select Match", matches)
+                prediction_type = st.selectbox("Prediction Type", 
+                    ["Match Winner", "Total Rounds", "First Half Winner"])
+                team_choice = st.selectbox("Team Selection", teams) if prediction_type != "Total Rounds" else None
                 confidence = st.slider("Confidence", 0, 100, 50)
-                status = st.selectbox("Status", ["Active", "Pending", "Completed"])
+                
+                # Build title and description based on selections
+                title = f"CSGO: {match}"
+                description = f"Prediction: {prediction_type}"
+                if team_choice:
+                    description += f" - {team_choice}"
+                
+                status = "Active"  # Default for new predictions
                 
                 submitted = st.form_submit_button("Submit Prediction")
                 

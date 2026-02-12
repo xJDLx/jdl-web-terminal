@@ -1,0 +1,6 @@
+[theme]
+primaryColor = "#00FF41" # Your terminal green
+backgroundColor = "#0E1117" # Deep professional black
+secondaryBackgroundColor = "#262730" # Sidebar color
+textColor = "#FAFAFA"
+font = "monospace" # Keeps the terminal vibe but cleaner

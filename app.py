@@ -46,14 +46,12 @@ def get_user_folder(user_email):
     """Create and return user-specific secure folder path"""
     if not user_email: return None
     
-    # Create base user data directory if it doesn't exist
     if not os.path.exists(USER_DATA_DIR):
-        os.makedirs(USER_DATA_DIR, mode=0o700)  # Secure permissions
+        os.makedirs(USER_DATA_DIR, mode=0o700)
         
-    # Create user-specific folder
     user_folder = os.path.join(USER_DATA_DIR, user_email.replace("@", "_at_").replace(".", "_dot_"))
     if not os.path.exists(user_folder):
-        os.makedirs(user_folder, mode=0o700)  # Secure permissions
+        os.makedirs(user_folder, mode=0o700)
         
     st.session_state.user_folder = user_folder
     return user_folder
@@ -71,25 +69,19 @@ def get_user_api_key_path(user_email):
     return os.path.join(folder, "api_key.txt") if folder else None
 
 # --- CONNECTION ---
-# Increased TTL to 300 seconds (5 minutes) to prevent hitting Google Sheets API quotas
 conn = st.connection("gsheets", type=GSheetsConnection, ttl=300)
 
-for key, val in [("admin_verified", False), ("user_verified", False), 
-                 ("user_email", None), ("user_name", None),
-                 ("w_abs", DEFAULT_WEIGHTS['abs']), ("w_mom", DEFAULT_WEIGHTS['mom']), 
-                 ("w_div", DEFAULT_WEIGHTS['div']), ("api_key", "")]:
-    if key not in st.session_state:
-        st.session_state[key] = val
->>>>>>> ae1f6abd49e9bb20acfccff947b76d06cd259ca0
+# Session State Initialization
+session_vars = [
+    ("admin_verified", False), ("user_verified", False), 
+    ("user_email", None), ("user_name", None),
+    ("w_abs", DEFAULT_WEIGHTS['abs']), ("w_mom", DEFAULT_WEIGHTS['mom']), 
+    ("w_div", DEFAULT_WEIGHTS['div']), ("api_key", "")
+]
 
-=======
-for key, val in [("admin_verified", False), ("user_verified", False), 
-                 ("user_email", None), ("user_name", None),
-                 ("w_abs", DEFAULT_WEIGHTS['abs']), ("w_mom", DEFAULT_WEIGHTS['mom']), 
-                 ("w_div", DEFAULT_WEIGHTS['div']), ("api_key", "")]:
+for key, val in session_vars:
     if key not in st.session_state:
         st.session_state[key] = val
->>>>>>> ae1f6abd49e9bb20acfccff947b76d06cd259ca0
 
 # --- CORE ENGINE FUNCTIONS ---
 def load_api_key(user_email):
@@ -212,7 +204,6 @@ def admin_dashboard():
     
     st.title("🔐 Admin Dashboard")
     try:
-        # Utilizing cached read to avoid API rate limits
         df_users = conn.read(worksheet="Sheet1", ttl=300)
     except Exception as e:
         st.error(f"❌ Connection Error: {str(e)}")

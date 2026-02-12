@@ -93,7 +93,11 @@ def tab_settings(conn):
     
     st.divider()
     
-    # API key management is now handled in item_monitor.py
+    # API Key Management
+    with st.expander("🔑 API Key Settings"):
+        st.info("Your API key is stored securely in your private user folder")
+        if st.button("Manage API Key"):
+            st.switch_page("pages/item_monitor.py")
     st.divider()
 
     with st.expander("🔐 Security Profile"):
@@ -111,7 +115,15 @@ def tab_settings(conn):
             st.rerun()
 
 # --- 3. MASTER INTERFACE ---
+def verify_session():
+    """Verify user session is valid"""
+    if not st.session_state.get("user_verified") and not st.session_state.get("admin_verified"):
+        st.warning("Session expired. Please log in again.")
+        st.session_state.clear()
+        st.rerun()
+
 def show_user_interface(conn):
+    verify_session()
     # Initialize prediction weights
     if "w_abs" not in st.session_state:
         st.session_state.w_abs = 0.4

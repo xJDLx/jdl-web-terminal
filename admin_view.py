@@ -3,6 +3,18 @@ import pandas as pd
 from datetime import datetime, timedelta
 from sheets_config import read_sheet, update_sheet
 
+def safe_sheet_operation(operation):
+    """Wrapper for safe sheet operations"""
+    try:
+        return operation()
+    except Exception as e:
+        st.error(f"Operation failed: {str(e)}")
+        if "PERMISSION_DENIED" in str(e):
+            st.warning("Please check your Google Sheets permissions")
+        elif "QUOTA_EXCEEDED" in str(e):
+            st.warning("API quota exceeded. Please try again later")
+        return None
+
 def show_command_center(conn):
     st.title("🛡️ Command Center")
     

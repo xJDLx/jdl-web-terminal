@@ -51,7 +51,7 @@ def show_item_monitor(conn):
             api_input = st.text_input("Enter your Steamdt API Key", type="password")
             if st.button("Save API Key"):
                 if api_input:
-                    save_api_key(api_input)
+                    save_api_key(api_input, user_folder)
                     st.success("API Key saved! Refresh to continue.")
                     st.rerun()
                 else:

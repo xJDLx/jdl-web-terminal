@@ -3,6 +3,37 @@ import pandas as pd
 from datetime import datetime, timedelta
 import hashlib
 
+# Rate limiting configuration
+MAX_ATTEMPTS = 5
+LOCKOUT_DURATION = 15  # minutes
+login_attempts = {}
+
+def check_rate_limit(email: str) -> tuple[bool, str]:
+    """Check if user is rate limited"""
+    now = datetime.now()
+    if email in login_attempts:
+        attempts, lockout_time = login_attempts[email]
+        if lockout_time and now < lockout_time:
+            return False, f"Account locked for {LOCKOUT_DURATION} minutes"
+        if now - attempts[0] < timedelta(minutes=LOCKOUT_DURATION):
+            if len(attempts) >= MAX_ATTEMPTS:
+                lockout_time = now + timedelta(minutes=LOCKOUT_DURATION)
+                login_attempts[email] = (attempts, lockout_time)
+                return False, f"Too many attempts. Account locked for {LOCKOUT_DURATION} minutes"
+    return True, "OK"
+
+def validate_password(password: str) -> tuple[bool, str]:
+    """Validate password meets security requirements"""
+    if len(password) < 8:
+        return False, "Password must be at least 8 characters"
+    if not any(c.isupper() for c in password):
+        return False, "Password must contain at least 1 uppercase letter"
+    if not any(c.islower() for c in password):
+        return False, "Password must contain at least 1 lowercase letter"
+    if not any(c.isdigit() for c in password):
+        return False, "Password must contain at least 1 number"
+    return True, "Password acceptable"
+
 def hash_password(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
 

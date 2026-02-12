@@ -1,6 +1,5 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
-from streamlit_option_menu import option_menu
 import gatekeeper
 import admin_view
 import home_view
@@ -10,16 +9,42 @@ st.set_page_config(
     page_title="JDL System", 
     page_icon="🏢", 
     layout="wide",
-    initial_sidebar_state="collapsed" # Hide default sidebar
+    initial_sidebar_state="collapsed"
 )
 
-# 2. HIDE DEFAULT MENU & STYLING
+# 2. PROFESSIONAL CSS STYLING
 st.markdown("""
     <style>
+    /* Hide default Streamlit menu */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
+    
+    /* Remove padding to make the navbar touch the top */
     .block-container {padding-top: 1rem;}
+    
+    /* STYLE THE TABS TO LOOK LIKE A NAVBAR */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 2px;
+        background-color: #0e1117;
+        padding-bottom: 0px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
+        background-color: #0e1117;
+        border-radius: 4px 4px 0px 0px;
+        gap: 1px;
+        padding-top: 10px;
+        padding-bottom: 10px;
+        color: #b2b2b2; /* Default text color */
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #1e1e1e; /* Active tab background */
+        border-bottom: 2px solid #00ff41; /* Green underline */
+        color: #00ff41; /* Green text */
+        font-weight: bold;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -29,7 +54,7 @@ conn = st.connection("gsheets", type=GSheetsConnection, ttl=0)
 if "admin_verified" not in st.session_state: st.session_state.admin_verified = False
 if "user_verified" not in st.session_state: st.session_state.user_verified = False
 
-# 4. REFRESH LOGIC
+# 4. REFRESH LOGIC (Keeps you logged in)
 if st.query_params.get("role") == "admin": st.session_state.admin_verified = True
 elif st.query_params.get("role") == "user": st.session_state.user_verified = True
 
@@ -39,39 +64,29 @@ def main():
         gatekeeper.show_login(conn)
         return
 
-    # --- TOP NAVIGATION BAR ---
-    selected = option_menu(
-        menu_title=None, 
-        options=["Dashboard", "Registry", "System Logs", "Logout"], 
-        icons=["speedometer2", "table", "terminal", "box-arrow-right"], 
-        menu_icon="cast", 
-        default_index=0, 
-        orientation="horizontal",
-        styles={
-            "container": {"padding": "0!important", "background-color": "#0e1117"},
-            "icon": {"color": "#00ff41", "font-size": "18px"}, 
-            "nav-link": {"font-size": "15px", "text-align": "center", "margin":"0px", "--hover-color": "#262730"},
-            "nav-link-selected": {"background-color": "#262730", "color": "#00ff41"},
-        }
-    )
-
-    # --- ROUTING ---
-    if selected == "Logout":
-        st.query_params.clear()
-        st.session_state.clear()
-        st.rerun()
-
-    # ADMIN ROUTES
+    # --- ADMIN VIEW (Professional Tabs) ---
     if st.session_state.admin_verified:
-        if selected == "Dashboard":
+        # NATIVE TOP NAVIGATION
+        t1, t2, t3, t4 = st.tabs(["📊 Dashboard", "🗂️ User Registry", "⚙️ System Logs", "🔒 Logout"])
+        
+        with t1:
             admin_view.show_dashboard(conn)
-        elif selected == "Registry":
+        
+        with t2:
             admin_view.show_catalog_view(conn)
-        elif selected == "System Logs":
+            
+        with t3:
             st.title("📟 System Event Logs")
-            st.info("System Normal. No critical events in the last 24 hours.")
+            st.info("System Status: Nominal. No errors reported in the last 24 hours.")
+            
+        with t4:
+            st.warning("Confirm Logout?")
+            if st.button("Yes, Log Me Out"):
+                st.query_params.clear()
+                st.session_state.clear()
+                st.rerun()
 
-    # USER ROUTES
+    # --- USER VIEW ---
     elif st.session_state.user_verified:
         home_view.show_home(conn)
 

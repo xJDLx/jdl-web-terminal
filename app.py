@@ -107,7 +107,6 @@ def save_history_entry(user_email, item_name, price, supply):
     if path: updated.to_csv(path, index=False, encoding="utf-8-sig")
 
 def get_bought_momentum(user_email, item_name):
-    """Calculates sales based on supply drops in history"""
     df_h = load_history(user_email)
     if df_h.empty: return 0, 0, 0
     item_data = df_h[df_h["Item Name"] == item_name].sort_values("Date")
@@ -125,24 +124,24 @@ def get_bought_momentum(user_email, item_name):
     return int(b_3h), int(b_today), int(b_yesterday)
 
 def get_prediction_metrics(user_email, row, weights):
-    """Calculates momentum and supply choke score"""
-    # AT Values = Analysis Base Points
-    e_price, e_supply = row["AT Price"], row["AT Supply"]
-    c_price, c_supply = row["Price (CNY)"], row["Supply"]
+    # AT Values are the base points for calculation
+    at_price, at_supply = row["AT Price"], row["AT Supply"]
+    current_price, current_supply = row["Price (CNY)"], row["Supply"]
     
     b_3h, b_today, b_yest = get_bought_momentum(user_email, row['Item Name'])
     
-    # Supply Choke calculation
-    s_pct = (e_supply - c_supply) / max(1, e_supply)
-    abs_pts = np.clip((s_pct * 100) * 10, 0, 100) 
+    # AT Supply Choke calculation: How much has supply dropped from our AT target?
+    supply_diff = at_supply - current_supply
+    s_pct = supply_diff / max(1, at_supply)
+    abs_pts = np.clip((s_pct * 100) * 10, 0, 100)
 
-    # Momentum logic
+    # Momentum points based on Daily Sales
     mom_pts = 100 if b_today > b_yest and b_today > 0 else (50 if b_3h > 0 else 0)
     
     total = round((abs_pts * weights['abs']) + (mom_pts * weights['mom']), 1)
     status = "🥇 THE BEST" if total >= 80 else ("❌ THE WORST" if total < 15 else "⚖️ NEUTRAL")
     
-    return {"score": total, "reason": status, "Daily Sales": b_today}
+    return pd.Series({"score": total, "reason": status, "Daily Sales": b_today})
 
 def fetch_market_data(item_hash, api_key):
     try:
@@ -171,19 +170,31 @@ def user_dashboard():
     
     if not df_raw.empty:
         weights = {'abs': st.session_state.w_abs, 'mom': st.session_state.w_mom, 'div': st.session_state.w_div}
-        # Update Sales and Scores dynamically
-        pred_res = df_raw.apply(lambda row: get_prediction_metrics(user_email, row, weights), axis=1, result_type='expand')
-        # Combine predictions with original data
-        for col in ["score", "reason", "Daily Sales"]:
-            if col in pred_res.columns:
-                df_raw[col] = pred_res[col]
+        # Dynamically calculate AT metrics and momentum
+        pred_metrics = df_raw.apply(lambda row: get_prediction_metrics(user_email, row, weights), axis=1)
+        df_display = pd.concat([df_raw, pred_metrics], axis=1)
+    else:
+        df_display = df_raw
 
     t = st.tabs(["🛰️ Predictor", "🏠 Homepage", "⚙️ Management"])
     
     with t[0]:
-        if not df_raw.empty:
-            st.dataframe(df_raw.sort_values("score", ascending=False), use_container_width=True, hide_index=True)
+        if not df_display.empty:
+            st.dataframe(df_display.sort_values("score", ascending=False), use_container_width=True, hide_index=True)
         else: st.info("Add items in Homepage")
+
+    with t[1]:
+        st.subheader("Add/Edit AT Targets")
+        # Homepage logic for manually entering AT targets
+        with st.form("at_target_form"):
+            item_to_edit = st.selectbox("Select Item", df_raw["Item Name"].tolist() if not df_raw.empty else ["No Items"])
+            new_at_p = st.number_input("Analysis Target Price", value=0.0)
+            new_at_s = st.number_input("Analysis Target Supply", value=0)
+            if st.form_submit_button("Update AT Values"):
+                df_raw.loc[df_raw["Item Name"] == item_to_edit, ["AT Price", "AT Supply"]] = [new_at_p, new_at_s]
+                save_portfolio(user_email, df_raw)
+                st.success("Targets updated!")
+                st.rerun()
 
     with t[2]:
         st.subheader("🔑 API Key")
@@ -196,7 +207,7 @@ def user_dashboard():
         if st.button("🔄 Global Sync"):
             if not st.session_state.api_key: st.error("No API Key")
             else:
-                # Update Session values before starting new fetch
+                # Sess (Session) tracking: Store current values before fetching new ones
                 df_raw["Sess Price"] = df_raw["Price (CNY)"]
                 df_raw["Sess Supply"] = df_raw["Supply"]
                 

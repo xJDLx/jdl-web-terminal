@@ -12,6 +12,7 @@ import urllib.parse
 
 # --- CONFIGURATION ---
 DB_FILE = "csgo_api_v47.json"
+# Updated to the official single price endpoint
 STEAMDT_BASE_URL = "https://open.steamdt.com/open/cs2/v1/price/single"
 USER_DATA_DIR = "user_data"
 DEFAULT_WEIGHTS = {'abs': 0.4, 'mom': 0.3, 'div': 0.3}
@@ -70,7 +71,7 @@ def save_api_key(user_email, key):
         with open(path, "w") as f: f.write(key.strip())
 
 def load_portfolio(user_email):
-    # Updated Headers as requested
+    # Updated Headers
     cols = ["Item name", "Entry price", "Entry supply", "Current price", "current supply", 
             "supply change number(%)", "price change number(%)", "Entry date", "Score", "Reason", "Daily sales"]
     path = get_user_portfolio_path(user_email)
@@ -128,7 +129,7 @@ def get_bought_momentum(user_email, item_name):
     return int(b_3h), int(b_today), int(b_yesterday)
 
 def calculate_metrics(user_email, row, weights):
-    # Mapping new headers to calculation logic
+    # Mapping requested headers to calculation logic
     e_price, e_supply = row["Entry price"], row["Entry supply"]
     c_price, c_supply = row["Current price"], row["current supply"]
     
@@ -138,7 +139,7 @@ def calculate_metrics(user_email, row, weights):
     
     b_3h, b_today, b_yest = get_bought_momentum(user_email, row['Item name'])
     
-    # Score Logic
+    # Predictor Logic
     abs_pts = np.clip(supply_change * 10, 0, 100)
     mom_pts = 100 if b_today > b_yest and b_today > 0 else (50 if b_3h > 0 else 0)
     
@@ -155,6 +156,7 @@ def calculate_metrics(user_email, row, weights):
 
 def fetch_market_data(item_hash, api_key):
     try:
+        # Align with doc.steamdt.com schema
         encoded_name = urllib.parse.quote(item_hash)
         headers = {"Authorization": f"Bearer {api_key}"}
         url = f"{STEAMDT_BASE_URL}?marketHashName={encoded_name}"
@@ -163,6 +165,7 @@ def fetch_market_data(item_hash, api_key):
             res = r.json()
             data = res.get("data", [])
             if not data: return None, "No data"
+            # Prioritize BUFF price
             price = next((m['sellPrice'] for m in data if m['platform'] == "BUFF"), data[0]['sellPrice'])
             supply = sum(m.get("sellCount", 0) for m in data)
             return {"price": price, "supply": supply}, None
@@ -180,12 +183,10 @@ def user_dashboard():
     
     if not df_raw.empty:
         weights = {'abs': st.session_state.w_abs, 'mom': st.session_state.w_mom, 'div': st.session_state.w_div}
-        
-        # Drop calculated columns to avoid Arrow duplicate error
+        # Drop calculated columns to prevent duplicate column error
         calc_cols = ["supply change number(%)", "price change number(%)", "Score", "Reason", "Daily sales"]
         df_clean = df_raw.drop(columns=[c for c in calc_cols if c in df_raw.columns])
-        
-        # Calculate new metrics based on Entry vs Current
+        # Recalculate based on requested metrics
         metrics = df_clean.apply(lambda row: calculate_metrics(user_email, row, weights), axis=1)
         df_display = pd.concat([df_clean, metrics], axis=1)
     else:
@@ -196,10 +197,10 @@ def user_dashboard():
     with t[0]:
         if not df_display.empty:
             st.dataframe(df_display.sort_values("Score", ascending=False), use_container_width=True, hide_index=True)
-        else: st.info("Add items in Homepage")
+        else: st.info("Use Homepage to add items and Entry points.")
 
     with t[1]:
-        st.subheader("Manage Entry Data")
+        st.subheader("Manage Entry Points")
         if not df_raw.empty:
             with st.form("entry_data_form"):
                 item_to_edit = st.selectbox("Select Item", df_raw["Item name"].tolist())
@@ -212,11 +213,11 @@ def user_dashboard():
                 if st.form_submit_button("Update Entry Points"):
                     df_raw.loc[df_raw["Item name"] == item_to_edit, ["Entry price", "Entry supply", "Entry date"]] = [new_entry_p, new_entry_s, new_entry_d]
                     save_portfolio(user_email, df_raw)
-                    st.success("Entry points updated!")
+                    st.success("Entry updated!")
                     st.rerun()
 
     with t[2]:
-        st.subheader("🔑 API Key")
+        st.subheader("🔑 API Configuration")
         api_input = st.text_input("Enter SteamDT Key", value=st.session_state.api_key, type="password")
         if st.button("💾 Save Key"):
             save_api_key(user_email, api_input)
@@ -232,11 +233,9 @@ def user_dashboard():
                     if data:
                         df_raw.at[idx, "Current price"] = data["price"]
                         df_raw.at[idx, "current supply"] = data["supply"]
-                        df_raw.at[idx, "Last Updated"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
                         save_history_entry(user_email, row["Item name"], data["price"], data["supply"])
                     p.progress((i + 1) / len(df_raw))
                     time.sleep(1.2)
-                
                 save_portfolio(user_email, df_raw)
                 st.success("Sync Complete")
                 st.rerun()

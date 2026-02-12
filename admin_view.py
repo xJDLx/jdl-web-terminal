@@ -8,9 +8,9 @@ def show_command_center(conn):
     try:
         # 1. FETCH & PREPARE DATA
         df = conn.read(worksheet="Sheet1", ttl=0)
-        df = df.fillna("") # Show all rows, even if empty
+        df = df.fillna("") 
         
-        # 2. METRICS (Top Row)
+        # 2. METRICS
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Active Sessions", len(df[df['Session'] == 'Online']))
         c2.metric("Pending Requests", len(df[df['Status'] == 'Pending']))
@@ -19,7 +19,7 @@ def show_command_center(conn):
         
         st.divider()
         
-        # 3. ACTIONS & SEARCH (Middle Row)
+        # 3. ACTIONS & SEARCH
         col_actions, col_search = st.columns([0.4, 0.6])
         
         with col_actions:
@@ -44,23 +44,24 @@ def show_command_center(conn):
         else:
             df_display = df
 
-        # 5. THE MAIN TABLE (Bottom)
+        # 5. THE MAIN TABLE
         st.markdown("### 🗂️ Master Database")
         
         edited_df = st.data_editor(
             df_display,
             use_container_width=True,
-            height=600, # Tall enough to see many members
-            num_rows="dynamic", # Allows adding new rows
+            height=600,
+            num_rows="dynamic",
             column_config={
                 "Session": st.column_config.SelectboxColumn("Session", options=["Online", "Offline"]),
                 "Status": st.column_config.SelectboxColumn("Status", options=["Approved", "Pending", "Denied"]),
-                "Password": st.column_config.TextColumn("Password", type="password"),
+                # FIXED: Removed broken 'type' argument. 
+                # Set to None to HIDE passwords from the table (Best Practice)
+                "Password": None, 
                 "Last Login": st.column_config.DatetimeColumn("Last Login", format="D MMM, HH:mm"),
             }
         )
         
-        # SAVE BUTTON
         if st.button("💾 Save Database Changes", type="primary", use_container_width=True):
             conn.update(worksheet="Sheet1", data=edited_df)
             st.success("✅ Database updated successfully!")

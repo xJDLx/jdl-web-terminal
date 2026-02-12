@@ -50,10 +50,10 @@ def _cached_read_sheet(sheet_name, worksheet_name, cache_key):
 def read_sheet(sheet_name, worksheet_name):
     """Read data from Google Sheet with caching"""
     try:
-        # Generate cache key based on current minute
-        cache_key = datetime.now().strftime("%Y%m%d%H%M")
+        # Generate cache key based on 5-minute intervals
+        cache_key = datetime.now().strftime("%Y%m%d%H%M")[:-1]
         
-        # Use cached data if available and less than 1 minute old
+        # Use cached data if available and less than 5 minutes old
         return _cached_read_sheet(sheet_name, worksheet_name, cache_key)
     except Exception as e:
         raise Exception(f"Failed to read sheet: {e}")

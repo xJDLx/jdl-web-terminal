@@ -38,12 +38,15 @@ def run_heartbeat(conn):
                         return "Expired"
                 except: pass
 
-            # Update Online Status - only if needed
-            if 'last_status_update' not in st.session_state:
+            # Update Online Status - only once every 5 minutes
+            current_time = datetime.now()
+            last_update = st.session_state.get('last_status_update')
+            
+            if not last_update or (current_time - last_update).total_seconds() > 300:
                 df.at[idx, 'Session'] = "Online"
-                df.at[idx, 'Last Login'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                df.at[idx, 'Last Login'] = current_time.strftime("%Y-%m-%d %H:%M:%S")
                 update_sheet("CSGO_Database", "Sheet1", df)
-                st.session_state.last_status_update = True
+                st.session_state.last_status_update = current_time
             
             return "Active"
             

@@ -132,7 +132,6 @@ def tab_settings(conn):
                     # Auto-create column if missing
                     df["SteamDT API"] = ""
                     conn.update(worksheet="Sheet1", data=df)
-                    st.rerun()
 
                 # Status
                 if current_key: st.caption("Status: 🟢 Key Saved")
@@ -147,7 +146,6 @@ def tab_settings(conn):
                         df.at[idx, "SteamDT API"] = new_key
                         conn.update(worksheet="Sheet1", data=df)
                         st.success("Key Saved Successfully!")
-                        st.rerun()
             else:
                 st.error(f"User '{email_param}' not found in database.")
                 st.write("Debug: available emails ->", df['Email'].tolist())

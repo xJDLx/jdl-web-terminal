@@ -71,15 +71,11 @@ def get_user_api_key_path(user_email):
 # --- CONNECTION ---
 conn = st.connection("gsheets", type=GSheetsConnection, ttl=300)
 
-# Session State Initialization
-session_vars = [
-    ("admin_verified", False), ("user_verified", False), 
-    ("user_email", None), ("user_name", None),
-    ("w_abs", DEFAULT_WEIGHTS['abs']), ("w_mom", DEFAULT_WEIGHTS['mom']), 
-    ("w_div", DEFAULT_WEIGHTS['div']), ("api_key", "")
-]
-
-for key, val in session_vars:
+# Initialize Session State
+for key, val in [("admin_verified", False), ("user_verified", False), 
+                 ("user_email", None), ("user_name", None),
+                 ("w_abs", DEFAULT_WEIGHTS['abs']), ("w_mom", DEFAULT_WEIGHTS['mom']), 
+                 ("w_div", DEFAULT_WEIGHTS['div']), ("api_key", "")]:
     if key not in st.session_state:
         st.session_state[key] = val
 
@@ -169,7 +165,7 @@ def get_prediction_metrics(user_email, row, weights):
     
     b_3h, b_today, b_yest = get_bought_momentum(user_email, item_name)
     s_pct = (e_supply - c_supply) / max(1, e_supply)
-    abs_pts = np.clip((s_pct * 100) * 10, 0, 100) 
+    abs_pts = np.clip((s_pct * 100) * 10, 0, 100)
 
     mom_pts = 100 if b_today > b_yest and b_today > 0 else (50 if b_3h > 0 else 0)
     p_pct = (c_price - e_price) / max(1, e_price)
@@ -245,13 +241,33 @@ def user_dashboard():
         else: st.info("Add items in Management")
 
     with t[3]:
+        # --- STEAMDT API KEY CONFIGURATION ---
+        st.subheader("🔑 SteamDT API Configuration")
+        col_api, col_btn = st.columns([0.8, 0.2])
+        
+        with col_api:
+            new_key = st.text_input("Enter SteamDT API Key", value=st.session_state.api_key, type="password", help="Get this from your SteamDT profile.")
+        
+        with col_btn:
+            st.write("") # Padding
+            st.write("") # Padding
+            if st.button("💾 Save Key"):
+                if new_key:
+                    save_api_key(st.session_state.user_email, new_key)
+                    st.session_state.api_key = new_key
+                    st.success("API Key Saved!")
+                else:
+                    st.error("Please enter a key")
+
+        st.divider()
+
         with st.expander("🎯 Strategy Tuner"):
             st.session_state.w_abs = st.slider("Supply Choke", 0.0, 1.0, st.session_state.w_abs)
             st.session_state.w_mom = st.slider("Momentum", 0.0, 1.0, st.session_state.w_mom)
             st.session_state.w_div = st.slider("Price Lag", 0.0, 1.0, st.session_state.w_div)
         
         if st.button("🔄 Global Sync"):
-            if not st.session_state.api_key: st.error("Set API Key")
+            if not st.session_state.api_key: st.error("Set API Key first.")
             else:
                 p = st.progress(0)
                 for i, (idx, row) in enumerate(df_raw.iterrows()):

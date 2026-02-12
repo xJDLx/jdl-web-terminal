@@ -37,13 +37,10 @@ def gatekeeper():
             req_email = st.text_input("Email Address")
             if st.form_submit_button("Submit Request"):
                 if req_name and req_email:
-                    # PERMANENT SAVING:
-                    # 1. Read existing data
-                    existing_data = conn.read(worksheet="Sheet1", usecols=[0,1,2])
-                    # 2. Add new row
+                    # READ EXISTING -> APPEND -> UPDATE
+                    existing_data = conn.read(worksheet="Sheet1")
                     new_row = pd.DataFrame([{"Name": req_name, "Email": req_email, "Date": str(date.today())}])
                     updated_df = pd.concat([existing_data, new_row], ignore_index=True)
-                    # 3. Write back to sheet
                     conn.update(worksheet="Sheet1", data=updated_df)
                     
                     st.success("Request saved permanently! Admin will review soon.")
@@ -80,7 +77,6 @@ def admin_dashboard():
     st.subheader("Live Pending Requests (from Google Sheets)")
     
     try:
-        # Pull live data from the sheet
         df = conn.read(worksheet="Sheet1")
         if not df.empty:
             st.dataframe(df, use_container_width=True)
@@ -89,7 +85,7 @@ def admin_dashboard():
         else:
             st.info("No requests found in the sheet.")
     except:
-        st.error("Could not connect to Google Sheets. Check your Secrets.")
+        st.error("Connection error. Ensure your Secrets contain the Spreadsheet URL.")
 
 def settings_page():
     st.title("⚙️ System Settings")

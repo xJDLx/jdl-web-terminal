@@ -69,15 +69,28 @@ def save_api_key(user_email, key):
     if path:
         with open(path, "w") as f: f.write(key.strip())
 
+@st.cache_data(ttl=3600)
+def load_local_database():
+    """Loads the valid item list from csgo_api_v47.json"""
+    if not os.path.exists(DB_FILE): return None, "❌ Database Not Found"
+    try:
+        with open(DB_FILE, "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            return { (item.get("name") or item.get("market_hash_name")): item for item in data }, None
+        items = data.get("items", [])
+        if items and isinstance(items[0], str):
+            return {item: {"name": item} for item in items}, None
+        return {(item.get("name") or item.get("market_hash_name")): item for item in items}, None
+    except Exception as e: return None, str(e)
+
 def load_portfolio(user_email):
-    # Updated Jewelry-focused headers
     cols = ["Name of", "Entry price", "Entry supply", "Current price", "current supply", 
             "supply change number(%)", "price change number(%)", "Entry date", "Score", "Reason", "Daily sales"]
     path = get_user_portfolio_path(user_email)
     if path and os.path.exists(path):
         try:
             df = pd.read_csv(path, encoding="utf-8-sig")
-            # Fill missing columns
             for c in cols:
                 if c not in df.columns: 
                     df[c] = 0 if "(%)" not in c else 0.0
@@ -130,17 +143,14 @@ def get_bought_momentum(user_email, item_name):
     return int(b_3h), int(b_today), int(b_yesterday)
 
 def calculate_metrics(user_email, row, weights):
-    # Mapping new "Jewelry" headers to calculation logic
     e_price, e_supply = row["Entry price"], row["Entry supply"]
     c_price, c_supply = row["Current price"], row["current supply"]
     
-    # Calculate Changes (%)
     supply_change = ((e_supply - c_supply) / max(1, e_supply)) * 100
     price_change = ((c_price - e_price) / max(0.01, e_price)) * 100
     
     b_3h, b_today, b_yest = get_bought_momentum(user_email, row['Name of'])
     
-    # Predictor Logic (Best/Worst)
     abs_pts = np.clip(supply_change * 10, 0, 100)
     mom_pts = 100 if b_today > b_yest and b_today > 0 else (50 if b_3h > 0 else 0)
     
@@ -157,7 +167,6 @@ def calculate_metrics(user_email, row, weights):
 
 def fetch_market_data(item_hash, api_key):
     try:
-        # Align with SteamDT doc schema: single price inquiry
         encoded_name = urllib.parse.quote(item_hash)
         headers = {"Authorization": f"Bearer {api_key}"}
         url = f"{STEAMDT_BASE_URL}?marketHashName={encoded_name}"
@@ -165,8 +174,7 @@ def fetch_market_data(item_hash, api_key):
         if r.status_code == 200:
             res = r.json()
             data = res.get("data", [])
-            if not data: return None, "No data found"
-            # Prioritize BUFF pricing PlatformPriceVO model
+            if not data: return None, "No data"
             price = next((m['sellPrice'] for m in data if m['platform'] == "BUFF"), data[0]['sellPrice'])
             supply = sum(m.get("sellCount", 0) for m in data)
             return {"price": price, "supply": supply}, None
@@ -175,6 +183,7 @@ def fetch_market_data(item_hash, api_key):
 
 # --- USER DASHBOARD ---
 def user_dashboard():
+    DB_DATA, DB_ERROR = load_local_database()
     user_email = st.session_state.user_email
     if not st.session_state.api_key:
         st.session_state.api_key = load_api_key(user_email)
@@ -184,10 +193,8 @@ def user_dashboard():
     
     if not df_raw.empty:
         weights = {'abs': st.session_state.w_abs, 'mom': st.session_state.w_mom, 'div': st.session_state.w_div}
-        # Drop dynamic columns before recalculating to prevent Duplicate Column Error
         calc_cols = ["supply change number(%)", "price change number(%)", "Score", "Reason", "Daily sales"]
         df_clean = df_raw.drop(columns=[c for c in calc_cols if c in df_raw.columns])
-        # Recalculate metrics
         metrics = df_clean.apply(lambda row: calculate_metrics(user_email, row, weights), axis=1)
         df_display = pd.concat([df_clean, metrics], axis=1)
     else:
@@ -198,25 +205,36 @@ def user_dashboard():
     with t[0]:
         if not df_display.empty:
             st.dataframe(df_display.sort_values("Score", ascending=False), use_container_width=True, hide_index=True)
-        else: st.info("Use Homepage to add jewelry items.")
+        else: st.info("Use Homepage to add items from the database.")
 
     with t[1]:
-        st.subheader("Manage Jewelry Database")
-        # Allow user to fix and manage Entry data
-        if not df_raw.empty:
-            with st.form("jewelry_fix_form"):
-                item_to_edit = st.selectbox("Select Jewelry Item", df_raw["Name of"].tolist())
-                current_row = df_raw[df_raw["Name of"] == item_to_edit].iloc[0]
+        st.subheader("Add/Manage Database Entries")
+        if DB_DATA:
+            # Strictly allow entries from csgo_api_v47.json
+            valid_items = sorted(list(DB_DATA.keys()))
+            
+            with st.form("add_item_form"):
+                new_item_name = st.selectbox("Select Item from Database", [""] + valid_items)
+                e_p = st.number_input("Entry Price", value=0.0)
+                e_s = st.number_input("Entry Supply", value=0)
+                e_d = st.date_input("Entry Date", datetime.date.today())
                 
-                new_entry_p = st.number_input("Entry Price", value=float(current_row.get("Entry price", 0.0)))
-                new_entry_s = st.number_input("Entry Supply", value=int(current_row.get("Entry supply", 0)))
-                new_entry_d = st.text_input("Entry Date", value=str(current_row.get("Entry date", "")))
-                
-                if st.form_submit_button("Update Spreadsheet Database"):
-                    df_raw.loc[df_raw["Name of"] == item_to_edit, ["Entry price", "Entry supply", "Entry date"]] = [new_entry_p, new_entry_s, new_entry_d]
-                    save_portfolio(user_email, df_raw)
-                    st.success(f"{item_to_edit} database entry fixed!")
-                    st.rerun()
+                if st.form_submit_button("✅ Add Item"):
+                    if new_item_name and new_item_name not in df_raw["Name of"].values:
+                        new_row = pd.DataFrame([{
+                            "Name of": new_item_name, "Entry price": e_p, "Entry supply": e_s,
+                            "Current price": 0, "current supply": 0, "Entry date": e_d.strftime("%Y-%m-%d")
+                        }])
+                        df_updated = pd.concat([df_raw, new_row], ignore_index=True)
+                        save_portfolio(user_email, df_updated)
+                        st.success(f"{new_item_name} added!")
+                        st.rerun()
+                    elif not new_item_name:
+                        st.error("Please select an item.")
+                    else:
+                        st.warning("Item already in portfolio.")
+        else:
+            st.error(DB_ERROR or "Database file missing.")
 
     with t[2]:
         st.subheader("⚙️ API Configuration")
@@ -227,7 +245,7 @@ def user_dashboard():
             st.success("API Key saved.")
 
         st.divider()
-        if st.button("🔄 Sync with SteamDT"):
+        if st.button("🔄 Global Sync"):
             if not st.session_state.api_key: st.error("No API Key")
             else:
                 p = st.progress(0)

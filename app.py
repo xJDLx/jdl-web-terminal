@@ -12,40 +12,57 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 2. CSS STYLING
-st.markdown("""
-    <style>
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    .block-container {padding-top: 1rem;}
-    
-    /* Professional Tab Styling */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 2px;
-        background-color: #0e1117;
-        padding-bottom: 0px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        white-space: pre-wrap;
-        background-color: #0e1117;
-        border-radius: 4px 4px 0px 0px;
-        gap: 1px;
-        padding-top: 10px;
-        padding-bottom: 10px;
-        color: #b2b2b2;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #1e1e1e;
-        border-bottom: 2px solid #00ff41;
-        color: #00ff41;
-        font-weight: bold;
-    }
-    </style>
-""", unsafe_allow_html=True)
+# 2. THEME ENGINE (New Feature)
+def apply_theme():
+    # Default to Dark if not set
+    if "theme" not in st.session_state:
+        st.session_state.theme = "Dark"
 
-# 3. CONNECTION
+    # If Light Mode is selected, we force white backgrounds using CSS override
+    if st.session_state.theme == "Light":
+        st.markdown("""
+            <style>
+            [data-testid="stAppViewContainer"] {
+                background-color: #ffffff !important;
+                color: #000000 !important;
+            }
+            [data-testid="stSidebar"] {
+                background-color: #f0f2f6 !important;
+            }
+            [data-testid="stHeader"] {
+                background-color: #ffffff !important;
+            }
+            .stTabs [data-baseweb="tab-list"] {
+                background-color: #ffffff !important;
+            }
+            .stTabs [data-baseweb="tab"] {
+                background-color: #ffffff !important;
+                color: #000000 !important;
+            }
+            </style>
+        """, unsafe_allow_html=True)
+    else:
+        # DARK MODE (Your Default Professional Look)
+        st.markdown("""
+            <style>
+            .stTabs [data-baseweb="tab-list"] {
+                background-color: #0e1117;
+            }
+            .stTabs [data-baseweb="tab"] {
+                background-color: #0e1117;
+                color: #b2b2b2;
+            }
+            .stTabs [aria-selected="true"] {
+                color: #00ff41 !important;
+                border-bottom-color: #00ff41 !important;
+            }
+            </style>
+        """, unsafe_allow_html=True)
+
+# Apply the theme immediately
+apply_theme()
+
+# 3. CONNECTION & STATE
 conn = st.connection("gsheets", type=GSheetsConnection, ttl=0)
 
 if "admin_verified" not in st.session_state: st.session_state.admin_verified = False
@@ -56,29 +73,34 @@ if st.query_params.get("role") == "admin": st.session_state.admin_verified = Tru
 elif st.query_params.get("role") == "user": st.session_state.user_verified = True
 
 def main():
-    # --- LOGGED OUT ---
     if not st.session_state.admin_verified and not st.session_state.user_verified:
         gatekeeper.show_login(conn)
         return
 
     # --- ADMIN VIEW ---
     if st.session_state.admin_verified:
-        t1, t2, t3, t4 = st.tabs(["📊 Dashboard", "🗂️ User Registry", "⚙️ System Logs", "🔒 Logout"])
-        
+        # Add Theme Toggle to Admin Sidebar or Top
+        with st.sidebar:
+            st.title("⚙️ Preferences")
+            # We use radio to switch theme
+            theme = st.radio("Theme", ["Dark", "Light"], 
+                             index=0 if st.session_state.theme == "Dark" else 1)
+            if theme != st.session_state.theme:
+                st.session_state.theme = theme
+                st.rerun()
+
+        t1, t2, t3, t4 = st.tabs(["📊 Dashboard", "🗂️ Registry", "⚙️ Logs", "🔒 Logout"])
         with t1: admin_view.show_dashboard(conn)
         with t2: admin_view.show_catalog_view(conn)
-        with t3: 
-            st.title("📟 System Event Logs")
-            st.info("System Status: Nominal.")
+        with t3: st.info("System Normal.")
         with t4:
-            if st.button("Confirm Logout"):
+            if st.button("Logout"):
                 st.query_params.clear()
                 st.session_state.clear()
                 st.rerun()
 
-    # --- USER VIEW (The New Interface) ---
+    # --- USER VIEW ---
     elif st.session_state.user_verified:
-        # Call the new 4-page function here
         home_view.show_user_interface(conn)
 
 if __name__ == "__main__":

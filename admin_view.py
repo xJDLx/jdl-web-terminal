@@ -1,13 +1,14 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
+from sheets_config import read_sheet, update_sheet
 
 def show_command_center(conn):
     st.title("🛡️ Command Center")
     
     try:
         # 1. FETCH & CLEAN
-        df = conn.read(worksheet="Sheet1", ttl=0)
+        df = read_sheet("CSGO_Database", "Sheet1")
         df = df.fillna("")
         
         # --- 🚨 PENDING REQUESTS ALERT SYSTEM ---
@@ -53,14 +54,14 @@ def show_command_center(conn):
                             df.at[index, 'Session'] = "Offline"
                             df.at[index, 'Expiry'] = final_expiry
                             
-                            conn.update(worksheet="Sheet1", data=df)
+                            update_sheet("CSGO_Database", "Sheet1", df)
                             st.success(f"Approved {row['Name']} until {final_expiry}!")
                             st.rerun()
 
                         # DENY BUTTON
                         if st.button("❌ Deny", key=f"deny_{index}", use_container_width=True):
                             df.at[index, 'Status'] = "Denied"
-                            conn.update(worksheet="Sheet1", data=df)
+                            update_sheet("CSGO_Database", "Sheet1", df)
                             st.warning(f"Denied {row['Name']}.")
                             st.rerun()
 
@@ -110,7 +111,7 @@ def show_command_center(conn):
         
         try:
             # Fetch predictions
-            predictions_df = conn.read(worksheet="Predictions", ttl=0)
+            predictions_df = read_sheet("CSGO_Database", "Predictions")
             predictions_df = predictions_df.fillna("")
         except:
             # Create Predictions worksheet if it doesn't exist
@@ -148,7 +149,7 @@ def show_command_center(conn):
                         "Date": datetime.now().strftime("%Y-%m-%d")
                     }
                     predictions_df = pd.concat([predictions_df, pd.DataFrame([new_row])], ignore_index=True)
-                    conn.update(worksheet="Predictions", data=predictions_df)
+                    update_sheet("CSGO_Database", "Predictions", predictions_df)
                     st.success(f"✅ Added prediction: {new_title}")
                     st.rerun()
                 else:
@@ -170,7 +171,7 @@ def show_command_center(conn):
             )
             
             if st.button("💾 Save Predictions", type="primary", use_container_width=True):
-                conn.update(worksheet="Predictions", data=edited_predictions)
+                update_sheet("CSGO_Database", "Predictions", edited_predictions)
                 st.success("✅ Predictions Updated!")
         else:
             st.info("No predictions yet. Add one to get started!")
@@ -206,7 +207,7 @@ def show_command_center(conn):
             if 'Last Login' in final_df.columns:
                 final_df['Last Login'] = final_df['Last Login'].astype(str).replace('NaT', '')
             
-            conn.update(worksheet="Sheet1", data=final_df)
+            update_sheet("CSGO_Database", "Sheet1", final_df)
             st.success("✅ Database Saved!")
 
     except Exception as e:

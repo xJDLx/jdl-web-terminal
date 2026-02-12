@@ -11,7 +11,7 @@ except:
 
 st.set_page_config(page_title="JDL Terminal", page_icon="📟", layout="wide")
 
-# Connect to GSheets (No caching for live tracking)
+# Connect to GSheets
 conn = st.connection("gsheets", type=GSheetsConnection, ttl=0)
 
 if "owner_verified" not in st.session_state:
@@ -51,7 +51,6 @@ def gatekeeper():
         if st.button("Unlock Admin"):
             if admin_input == MASTER_ADMIN_KEY:
                 st.session_state.owner_verified = True
-                # Update Admin's own status to Online
                 st.rerun()
 
 # --- 3. MAIN ROUTING ---
@@ -66,32 +65,30 @@ def admin_dashboard():
     try:
         df = conn.read(worksheet="Sheet1")
         
-        if not df.empty:
-            # Formatting the table for better visibility
+        # SAFETY CHECK: Ensure the 'Session' column exists before styling
+        if 'Session' in df.columns:
             def color_status(val):
                 color = 'green' if val == "Online" else 'red'
                 return f'color: {color}'
 
             st.subheader("Live User Logs")
-            st.dataframe(df.style.applymap(color_status, subset=['Session']), use_container_width=True)
-            
-            # Approve/Deny Actions
+            st.dataframe(df.style.map(color_status, subset=['Session']), use_container_width=True)
+        else:
+            st.error("❌ Missing Columns!")
+            st.warning("Please add 'Status', 'Last Login', and 'Session' as headers in Row 1 of your Google Sheet.")
+            st.dataframe(df) # Show raw data so you can see what's missing
+
+        # Management Tools
+        if not df.empty and 'Name' in df.columns:
             st.divider()
-            st.subheader("Manage Requests")
-            col1, col2 = st.columns(2)
-            with col1:
-                user_to_mod = st.selectbox("Select User", df['Name'].tolist())
-            with col2:
-                new_status = st.radio("Set Status", ["Approved", "Pending", "Denied"], horizontal=True)
+            user_to_mod = st.selectbox("Select User to Update", df['Name'].tolist())
+            new_status = st.radio("New Status", ["Approved", "Pending", "Denied"], horizontal=True)
             
-            if st.button("Update User Status"):
+            if st.button("Update Database"):
                 df.loc[df['Name'] == user_to_mod, 'Status'] = new_status
                 conn.update(worksheet="Sheet1", data=df)
-                st.success(f"Updated {user_to_mod} to {new_status}")
+                st.success(f"Updated {user_to_mod}!")
                 st.rerun()
-
-        else:
-            st.warning("No data found in Sheet1.")
             
     except Exception as e:
         st.error("Data Sync Error")

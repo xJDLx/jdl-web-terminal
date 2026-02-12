@@ -11,34 +11,81 @@ def show_login(conn):
     t1, t2, t3 = st.tabs(["Member Login", "Request Access", "Admin Portal"])
     
     with t1:
+        st.subheader("Member Access")
         email = st.text_input("Email").strip().lower()
         pwd = st.text_input("Password", type="password") 
         if st.button("Access Terminal"):
-            df = conn.read(worksheet="Sheet1", ttl=0)
-            df['Email'] = df['Email'].str.strip().str.lower()
-            
-            if email in df['Email'].values:
-                # Find the row index for this user
-                idx = df[df['Email'] == email].index[0]
-                user = df.iloc[idx]
+            try:
+                df = conn.read(worksheet="Sheet1", ttl=0)
+                df['Email'] = df['Email'].str.strip().str.lower()
                 
-                if str(user['Status']) == "Approved" and hash_password(pwd) == str(user['Password']):
-                    # --- CRITICAL: UPDATE STATUS TO ONLINE ---
-                    df.at[idx, 'Session'] = "Online"
-                    df.at[idx, 'Last Login'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    conn.update(worksheet="Sheet1", data=df)
+                if email in df['Email'].values:
+                    # Get user data
+                    idx = df[df['Email'] == email].index[0]
+                    user = df.iloc[idx]
                     
-                    # Set Session State
-                    st.session_state.user_verified = True
-                    st.session_state.user_name = user['Name']
-                    st.query_params["role"] = "user"
-                    st.query_params["name"] = user['Name']
-                    st.rerun()
-                elif str(user['Status']) != "Approved":
-                    st.error("Status: " + str(user['Status']))
+                    # Validate Status and Password
+                    if str(user['Status']) == "Approved" and hash_password(pwd) == str(user['Password']):
+                        # --- 1. UPDATE STATUS TO ONLINE ---
+                        df.at[idx, 'Session'] = "Online"
+                        df.at[idx, 'Last Login'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        conn.update(worksheet="Sheet1", data=df)
+                        
+                        # --- 2. SET SESSION STATE ---
+                        st.session_state.user_verified = True
+                        st.session_state.user_name = user['Name']
+                        
+                        # --- 3. SET URL PARAMETERS (Crucial for Home View) ---
+                        st.query_params["role"] = "user"
+                        st.query_params["name"] = user['Name']
+                        st.query_params["u"] = email  # <--- This allows home_view to track them
+                        
+                        st.rerun()
+                    elif str(user['Status']) != "Approved":
+                        st.error(f"Access Denied: Status is '{user['Status']}'")
+                    else:
+                        st.error("Incorrect Password.")
                 else:
-                    st.error("Incorrect Password.")
-            else:
-                st.error("User not found.")
+                    st.error("Email not found.")
+            except Exception as e:
+                st.error(f"Login Error: {e}")
 
-    # ... (Keep T2 and T3 the same) ...
+    with t2:
+        st.subheader("Request Terminal Access")
+        with st.form("req_form", clear_on_submit=True):
+            n = st.text_input("Full Name")
+            e = st.text_input("Email Address").strip().lower()
+            p = st.text_input("Create Private Password", type="password")
+            if st.form_submit_button("Submit Request"):
+                if n and e and p:
+                    try:
+                        df = conn.read(worksheet="Sheet1", ttl=0)
+                        new_data = pd.DataFrame([{
+                            "Name": n, 
+                            "Email": e, 
+                            "Password": hash_password(p),
+                            "Date": datetime.now().strftime("%Y-%m-%d"), 
+                            "Status": "Pending", 
+                            "Expiry": "Pending Admin",
+                            "Last Login": "Never", 
+                            "Session": "Offline"
+                        }])
+                        # Append and update
+                        updated_df = pd.concat([df, new_data], ignore_index=True)
+                        conn.update(worksheet="Sheet1", data=updated_df)
+                        st.success("Request sent to Admin.")
+                    except Exception as e:
+                        st.error(f"Request Error: {e}")
+                else:
+                    st.warning("All fields are required.")
+
+    with t3:
+        st.subheader("System Administration")
+        admin_key = st.text_input("Master Key", type="password")
+        if st.button("Unlock Admin"):
+            if admin_key == st.secrets.get("MASTER_KEY"):
+                st.session_state.admin_verified = True
+                st.query_params["role"] = "admin"
+                st.rerun()
+            else:
+                st.error("Invalid Master Key.")

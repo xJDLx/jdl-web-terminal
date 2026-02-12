@@ -2,8 +2,9 @@ import streamlit as st
 import pandas as pd
 import os
 from datetime import date
+from streamlit_gsheets import GSheetsConnection
 
-# --- 1. CONFIGURATION ---
+# --- 1. CONFIGURATION & DATABASE CONNECTION ---
 try:
     MASTER_ADMIN_KEY = st.secrets["MASTER_KEY"]
 except:
@@ -11,11 +12,11 @@ except:
 
 st.set_page_config(page_title="JDL Terminal", page_icon="📟", layout="wide")
 
-# Initialize persistent memory for the current session
+# Connect to Google Sheets
+conn = st.connection("gsheets", type=GSheetsConnection)
+
 if "owner_verified" not in st.session_state:
     st.session_state.owner_verified = False
-if "pending_requests" not in st.session_state:
-    st.session_state.pending_requests = []
 
 # --- 2. THE GATEKEEPER ---
 
@@ -25,9 +26,9 @@ def gatekeeper():
     
     with tabs[0]:
         st.subheader("Member Login")
-        user_key = st.text_input("Enter your Access Key", type="password")
+        user_key = st.text_input("Enter Access Key", type="password")
         if st.button("Access Terminal"):
-            st.error("Invalid or Expired Key.")
+            st.error("Key verification is currently offline.")
 
     with tabs[1]:
         st.subheader("Request Terminal Access")
@@ -36,10 +37,16 @@ def gatekeeper():
             req_email = st.text_input("Email Address")
             if st.form_submit_button("Submit Request"):
                 if req_name and req_email:
-                    # Save request to the session list
-                    new_req = {"Name": req_name, "Email": req_email, "Date": str(date.today())}
-                    st.session_state.pending_requests.append(new_req)
-                    st.success(f"Request sent! Admin will review your access.")
+                    # PERMANENT SAVING:
+                    # 1. Read existing data
+                    existing_data = conn.read(worksheet="Sheet1", usecols=[0,1,2])
+                    # 2. Add new row
+                    new_row = pd.DataFrame([{"Name": req_name, "Email": req_email, "Date": str(date.today())}])
+                    updated_df = pd.concat([existing_data, new_row], ignore_index=True)
+                    # 3. Write back to sheet
+                    conn.update(worksheet="Sheet1", data=updated_df)
+                    
+                    st.success("Request saved permanently! Admin will review soon.")
                 else:
                     st.error("Please fill in all fields.")
 
@@ -67,22 +74,22 @@ def terminal_page():
     if os.path.exists("portfolio.csv"):
         df = pd.read_csv("portfolio.csv")
         st.dataframe(df, use_container_width=True)
-    else:
-        st.info("Awaiting portfolio.csv...")
 
 def admin_dashboard():
     st.title("👥 User Administration")
-    st.subheader("Current Pending Requests")
+    st.subheader("Live Pending Requests (from Google Sheets)")
     
-    if st.session_state.pending_requests:
-        # Convert the list of requests into a table
-        req_df = pd.DataFrame(st.session_state.pending_requests)
-        st.table(req_df)
-        if st.button("Clear All Requests"):
-            st.session_state.pending_requests = []
-            st.rerun()
-    else:
-        st.info("No pending requests at this time.")
+    try:
+        # Pull live data from the sheet
+        df = conn.read(worksheet="Sheet1")
+        if not df.empty:
+            st.dataframe(df, use_container_width=True)
+            if st.button("Refresh Data"):
+                st.rerun()
+        else:
+            st.info("No requests found in the sheet.")
+    except:
+        st.error("Could not connect to Google Sheets. Check your Secrets.")
 
 def settings_page():
     st.title("⚙️ System Settings")

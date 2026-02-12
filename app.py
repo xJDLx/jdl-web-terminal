@@ -12,7 +12,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 2. CSS STYLING (Dark Mode)
+# 2. DARK THEME CSS
 st.markdown("""
     <style>
     [data-testid="stAppViewContainer"] {background-color: #0e1117;}
@@ -28,7 +28,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 3. CONNECTION & STATE
+# 3. CONNECTION
 conn = st.connection("gsheets", type=GSheetsConnection, ttl=0)
 
 if "admin_verified" not in st.session_state: st.session_state.admin_verified = False
@@ -43,19 +43,22 @@ def main():
 
     # --- ADMIN VIEW ---
     if st.session_state.admin_verified:
-        # MERGED TABS: Dashboard & Registry are now one "Command Center"
-        t1, t2, t3, t4 = st.tabs(["🛡️ Command Center", "👁️ User View", "⚙️ Logs", "🔒 Logout"])
+        # TABS: Command Center (Merged) AND Database (Separate)
+        t1, t2, t3, t4, t5 = st.tabs(["🛡️ Command Center", "🗂️ Database", "👁️ User View", "⚙️ Logs", "🔒 Logout"])
         
         with t1:
-            admin_view.show_command_center(conn) # <--- The new unified function
+            admin_view.show_command_center(conn)
             
         with t2:
-            st.warning("⚠️ Admin Preview Mode Active")
+            admin_view.show_database_view(conn) # <--- The dedicated view is back
+            
+        with t3:
+            st.warning("⚠️ Admin Preview Mode")
             home_view.show_user_interface(conn)
             
-        with t3: st.info("System Status: Nominal.")
+        with t4: st.info("System Normal.")
         
-        with t4:
+        with t5:
             if st.button("Confirm Logout"):
                 st.query_params.clear()
                 st.session_state.clear()

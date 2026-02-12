@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 import item_monitor
 import predictor
+from sheets_config import read_sheet, update_sheet
 
 # --- 1. HEARTBEAT & EXPIRY ---
 def run_heartbeat(conn):
@@ -41,7 +42,7 @@ def run_heartbeat(conn):
             if "status_checked" not in st.session_state:
                 df.at[idx, 'Session'] = "Online"
                 df.at[idx, 'Last Login'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                conn.update(worksheet="Sheet1", data=df)
+                update_sheet("CSGO_Database", "Sheet1", df)
                 st.session_state.status_checked = True
             
             return "Active"
@@ -94,7 +95,7 @@ def tab_settings(conn):
         st.subheader("🔌 API Configuration")
         
         try:
-            df = conn.read(worksheet="Sheet1", ttl=0)
+            df = read_sheet("CSGO_Database", "Sheet1")
             df = df.fillna("")
             
             # Get Email from URL

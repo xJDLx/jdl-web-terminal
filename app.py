@@ -35,15 +35,15 @@ def gatekeeper():
             if st.form_submit_button("Submit Request"):
                 if req_name and req_email:
                     try:
-                        # Fetch and Update
                         df = conn.read()
                         new_data = pd.DataFrame([{"Name": req_name, "Email": req_email, "Date": str(date.today())}])
                         updated_df = pd.concat([df, new_data], ignore_index=True)
                         conn.update(data=updated_df)
                         st.success("✅ Request saved to Google Sheets!")
                     except Exception as e:
-                        st.error("❌ Google Sheets Error")
-                        st.exception(e) 
+                        st.error("❌ Permission Denied by Google.")
+                        st.info("Ensure the email below is an EDITOR on your sheet.")
+                        st.code(st.secrets["connections"]["gsheets"]["client_email"])
                 else:
                     st.error("Please fill in all fields.")
 
@@ -63,16 +63,20 @@ if not st.session_state.owner_verified:
 # --- 4. ADMIN PAGES ---
 def admin_dashboard():
     st.title("👥 User Administration")
-    st.subheader("Live Database Status")
     
+    # DIAGNOSTIC: Show exactly which email to share with
     try:
-        # Pulling live data
+        current_bot = st.secrets["connections"]["gsheets"]["client_email"]
+        st.warning(f"Verify this email is an EDITOR on the sheet: `{current_bot}`")
+    except:
+        st.error("Could not find client_email in Secrets.")
+
+    st.subheader("Live Requests")
+    try:
         df = conn.read()
-        st.success("📡 Database Connection: ONLINE")
         st.dataframe(df, use_container_width=True)
     except Exception as e:
-        st.error("📡 Database Connection: OFFLINE")
-        st.info("Check if both Sheets API and Drive API are enabled in Google Cloud.")
+        st.error("📡 Database Offline")
         st.exception(e)
 
 pg = st.navigation([

@@ -4,9 +4,36 @@ from datetime import datetime, timedelta
 import json
 from steamdt_api import SteamdtAPI, load_api_key, save_api_key
 
+def initialize_items_database(conn):
+    """Create Items worksheet if it doesn't exist"""
+    try:
+        # Try to read existing Items worksheet
+        conn.read(worksheet="Items", ttl=0)
+        return True
+    except:
+        try:
+            # Create new Items worksheet with headers
+            headers_df = pd.DataFrame(columns=[
+                'Item Name', 'Market Hash Name', 'Added Date', 
+                'Current Price', 'Avg Price (7d)', 'Price Change', 
+                'Status', 'Last Updated'
+            ])
+            conn.create(worksheet="Items", data=headers_df)
+            st.success("✅ Items database created successfully!")
+            return True
+        except Exception as e:
+            st.error(f"Failed to create Items database: {e}")
+            st.info("Make sure you have a Google Sheet connected and proper permissions.")
+            return False
+
 def show_item_monitor(conn):
     """Main item monitor interface"""
     st.header("📊 Item Monitor")
+    
+    # Initialize database on first load
+    if not st.session_state.get("items_db_initialized"):
+        initialize_items_database(conn)
+        st.session_state.items_db_initialized = True
     
     # Check if API key is configured
     api_key = load_api_key()
@@ -46,16 +73,33 @@ def show_monitor_view(conn, api_key: str):
     try:
         # Try to load monitored items from Google Sheets
         monitored_items = conn.read(worksheet="Items", ttl=0)
-    except:
-        # Create empty dataframe if worksheet doesn't exist
-        monitored_items = pd.DataFrame(columns=[
-            'Item Name', 'Market Hash Name', 'Added Date', 
-            'Current Price', 'Avg Price (7d)', 'Price Change', 
-            'Status', 'Last Updated'
-        ])
+        # Remove header-only rows (if dataframe only has column names)
+        if len(monitored_items) == 0:
+            monitored_items = pd.DataFrame(columns=[
+                'Item Name', 'Market Hash Name', 'Added Date', 
+                'Current Price', 'Avg Price (7d)', 'Price Change', 
+                'Status', 'Last Updated'
+            ])
+    except Exception as e:
+        st.error(f"Error reading items database: {e}")
+        st.info("Try creating the database first or check your Sheet connection.")
+        return
     
     if monitored_items.empty:
-        st.info("No items being monitored yet. Add items in the '➕ Add Items' tab.")
+        st.info("📭 No items being monitored yet.")
+        st.info("➕ Go to the '➕ Add Items' tab and enter an item to start monitoring!")
+        
+        # Show help text
+        with st.expander("📖 How to add items"):
+            st.write("""
+            1. Go to Steam Community Market
+            2. Search for a CS2 item
+            3. Copy the exact item name (including condition)
+            4. Paste it in the '➕ Add Items' tab
+            5. Click 'Add Item to Monitor'
+            
+            Example: `AK-47 | Phantom Disruptor (Field-Tested)`
+            """)
         return
     
     # Initialize API client

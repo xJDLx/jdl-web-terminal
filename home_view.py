@@ -347,6 +347,6 @@ def show_user_interface(conn):
     email = st.query_params.get("u")
     t1, t2, t3, t4 = st.tabs(["🏠 Overview", "� Item Monitor", "📦 Inventory", "⚙️ Settings"])
     with t1: tab_overview(conn, email)
-    with t2: tab_predictions(conn)
+    with t2: item_monitor.show_item_monitor(conn)
     with t3: tab_inventory(conn)
     with t4: tab_settings(conn)

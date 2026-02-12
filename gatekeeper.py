@@ -80,7 +80,10 @@ def show_login(conn):
                         st.session_state.user_name = user['Name']
                         st.session_state.user_email = email
                         
-                        # --- 3. REDIRECT TO USER DASHBOARD ---
+                        # --- 3. SET QUERY PARAMS ---
+                        st.query_params["u"] = email
+                        
+                        # --- 4. REDIRECT TO USER DASHBOARD ---
                         st.rerun()
                     elif str(user['Status']) != "Approved":
                         st.error(f"Access Denied: Status is '{user['Status']}'")

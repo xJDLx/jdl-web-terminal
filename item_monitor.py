@@ -118,9 +118,9 @@ def show_add_items_view(conn, api_key: str):
     api = SteamdtAPI(api_key)
     
     with st.form("add_item_form"):
-        item_name = st.text_input("Item Name", placeholder="e.g., AK-47 | Phantom Disruptor")
+        st.info("📌 Use the exact market hash name from Steam Community Market")
         market_hash_name = st.text_input(
-            "Market Hash Name (exact name from Steam Community Market)", 
+            "Item Name (from Steam Market)", 
             placeholder="e.g., AK-47 | Phantom Disruptor (Field-Tested)"
         )
         
@@ -133,12 +133,13 @@ def show_add_items_view(conn, api_key: str):
         submitted = st.form_submit_button("Add Item to Monitor")
         
         if submitted:
-            if item_name and market_hash_name:
+            if market_hash_name:
                 # Verify item exists in API
                 price_data = api.get_item_price(market_hash_name)
                 
                 if price_data is None:
-                    st.error("❌ Item not found. Check the market hash name and try again.")
+                    st.error("❌ Item not found. Make sure you're using the exact name from Steam Community Market.")
+                    st.info("Example: 'AK-47 | Phantom Disruptor (Field-Tested)' or 'AWP Dragon Lore (Factory New)'")
                 else:
                     try:
                         # Load existing items
@@ -151,34 +152,38 @@ def show_add_items_view(conn, api_key: str):
                                 'Status', 'Last Updated'
                             ])
                         
-                        # Get average price
-                        avg_price_data = api.get_average_price(market_hash_name)
-                        avg_price = avg_price_data.get('avgPrice', 'N/A') if avg_price_data else 'N/A'
-                        
-                        # Add new item
-                        new_item = {
-                            'Item Name': item_name,
-                            'Market Hash Name': market_hash_name,
-                            'Added Date': datetime.now().strftime("%Y-%m-%d"),
-                            'Current Price': price_data.get('price', 'N/A'),
-                            'Avg Price (7d)': avg_price,
-                            'Price Change': '0%',
-                            'Status': 'Active',
-                            'Last Updated': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        }
-                        
-                        items_df = pd.concat(
-                            [items_df, pd.DataFrame([new_item])], 
-                            ignore_index=True
-                        )
-                        
-                        conn.update(worksheet="Items", data=items_df)
-                        st.success(f"✅ Added {item_name} to monitor!")
-                        st.rerun()
+                        # Check if item already being tracked
+                        if not items_df.empty and (items_df['Market Hash Name'] == market_hash_name).any():
+                            st.error("⚠️ Item is already being tracked")
+                        else:
+                            # Get average price
+                            avg_price_data = api.get_average_price(market_hash_name)
+                            avg_price = avg_price_data.get('avgPrice', 'N/A') if avg_price_data else 'N/A'
+                            
+                            # Add new item (use market hash name as display name too)
+                            new_item = {
+                                'Item Name': market_hash_name,
+                                'Market Hash Name': market_hash_name,
+                                'Added Date': datetime.now().strftime("%Y-%m-%d"),
+                                'Current Price': price_data.get('price', 'N/A'),
+                                'Avg Price (7d)': avg_price,
+                                'Price Change': '0%',
+                                'Status': 'Active',
+                                'Last Updated': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            }
+                            
+                            items_df = pd.concat(
+                                [items_df, pd.DataFrame([new_item])], 
+                                ignore_index=True
+                            )
+                            
+                            conn.update(worksheet="Items", data=items_df)
+                            st.success(f"✅ Added {market_hash_name} to monitor!")
+                            st.rerun()
                     except Exception as e:
                         st.error(f"Error adding item: {e}")
             else:
-                st.error("Please fill in all fields.")
+                st.error("Please enter the exact item name from Steam Market.")
 
 
 def show_item_details(item_row, api: SteamdtAPI):

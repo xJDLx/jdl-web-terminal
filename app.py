@@ -10,35 +10,38 @@ except:
     MASTER_ADMIN_KEY = "jdl2026"
 
 st.set_page_config(page_title="JDL Terminal", page_icon="📟", layout="wide")
+conn = st.connection("gsheets", type=GSheetsConnection, ttl=0) #
 
-# Connect with TTL=0 for live tracking
-conn = st.connection("gsheets", type=GSheetsConnection, ttl=0)
+# Initialize Session States
+if "admin_verified" not in st.session_state:
+    st.session_state.admin_verified = False
+if "user_verified" not in st.session_state:
+    st.session_state.user_verified = False
+if "user_name" not in st.session_state:
+    st.session_state.user_name = ""
 
 # --- 2. PERSISTENCE (REFRESH PROTECTION) ---
 if "admin_auth" in st.query_params and st.query_params["admin_auth"] == MASTER_ADMIN_KEY:
-    st.session_state.owner_verified = True
+    st.session_state.admin_verified = True #
 
-if "owner_verified" not in st.session_state:
-    st.session_state.owner_verified = False
+# --- 3. PAGE CONTENT FUNCTIONS ---
 
-# --- 3. PAGE FUNCTIONS (Replaces Lambdas) ---
-
-def terminal_online():
-    st.title("📟 Terminal Online")
-    st.success("System operational. Welcome back, Admin.")
-
-def logout_page():
-    st.title("🔒 Logging out...")
-    st.query_params.clear() # Clears the persistence key
-    st.session_state.owner_verified = False
-    st.rerun()
+def member_home():
+    st.title(f"📟 Welcome, {st.session_state.user_name}")
+    st.success("Authorized Access Granted.")
+    st.info("This is your Member Dashboard.")
+    
+    # Add your member-only content here
+    st.write("Current Intelligence Feeds...")
+    
+    if st.button("Logout"):
+        st.session_state.user_verified = False
+        st.rerun()
 
 def admin_dashboard():
     st.title("👥 User & Session Management")
-    
-    # Manual Refresh
     if st.button("🔄 Sync Live Data"):
-        st.cache_data.clear() # Clears internal cache
+        st.cache_data.clear() #
         st.rerun()
 
     try:
@@ -47,77 +50,88 @@ def admin_dashboard():
         st.dataframe(df, use_container_width=True)
 
         st.divider()
-        st.subheader("Quick Actions")
+        st.subheader("Update User Status")
         if not df.empty:
             target = st.selectbox("Select User", df['Name'].tolist())
-            new_stat = st.radio("Set Status", ["Approved", "Denied", "Pending"], horizontal=True)
-            if st.button("Update Status"):
+            new_stat = st.radio("Status", ["Approved", "Denied", "Pending"], horizontal=True)
+            if st.button("Update"):
                 df.loc[df['Name'] == target, 'Status'] = new_stat
                 conn.update(worksheet="Sheet1", data=df)
-                st.success(f"Updated {target} to {new_stat}")
+                st.success(f"Set {target} to {new_stat}")
                 st.rerun()
-    except Exception as e:
-        st.error("Sync Error: Ensure 'Sheet1' has all 7 required columns.")
+    except:
+        st.error("Sync Error: Check Spreadsheet columns.")
 
-# --- 4. THE GATEKEEPER (LOGIN) ---
+# --- 4. THE GATEKEEPER (LOGIN TABS) ---
 def gatekeeper():
     st.title("📟 JDL Intelligence System")
     tabs = st.tabs(["Member Login", "Request Access", "Admin Portal"])
     
     with tabs[0]: # MEMBER LOGIN
         st.subheader("Member Access")
-        member_key = st.text_input("Enter Email", placeholder="your@email.com").strip().lower()
-        if st.button("Log In"):
+        email_input = st.text_input("Enter Email", placeholder="your@email.com").strip().lower()
+        if st.button("Access Terminal"):
             try:
-                df = conn.read(worksheet="Sheet1")
+                df = conn.read(worksheet="Sheet1", ttl=0) # Forced refresh
                 df['Email'] = df['Email'].str.strip().str.lower()
-                if member_key in df['Email'].values:
-                    user = df[df['Email'] == member_key].iloc[0]
+                
+                if email_input in df['Email'].values:
+                    user = df[df['Email'] == email_input].iloc[0]
                     expiry = datetime.strptime(str(user['Expiry']), "%Y-%m-%d")
-                    if user['Status'] != "Approved":
-                        st.error("Access Pending: Approval required.")
+                    
+                    if str(user['Status']).strip() != "Approved":
+                        st.error("Access Pending: Admin approval required.")
                     elif datetime.now() > expiry:
                         st.error(f"Access Expired on {user['Expiry']}.")
                     else:
-                        st.success(f"Welcome, {user['Name']}!")
-                        df.loc[df['Email'] == member_key, 'Last Login'] = datetime.now().strftime("%Y-%m-%d %H:%M")
-                        df.loc[df['Email'] == member_key, 'Session'] = "Online"
+                        # Log them in and update state
+                        st.session_state.user_verified = True
+                        st.session_state.user_name = user['Name']
+                        
+                        # Update Live Sheet
+                        df.loc[df['Email'] == email_input, 'Last Login'] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                        df.loc[df['Email'] == email_input, 'Session'] = "Online"
                         conn.update(worksheet="Sheet1", data=df)
-                        st.balloons()
-                else: st.error("Email not found.")
-            except: st.error("Database Error. Check headers.")
+                        st.rerun() # Redirects to Home Page
+                else:
+                    st.error("Email not found.")
+            except Exception as e:
+                st.error("Database connection failed.")
 
     with tabs[1]: # REQUEST ACCESS
-        st.subheader("New Terminal Request")
-        with st.form("req_form", clear_on_submit=True):
-            n, e = st.text_input("Full Name"), st.text_input("Email")
-            d = st.number_input("Days Needed", min_value=1, value=30)
+        st.subheader("New Request")
+        with st.form("req", clear_on_submit=True):
+            n, e = st.text_input("Name"), st.text_input("Email")
+            d = st.number_input("Days", min_value=1, value=30)
             if st.form_submit_button("Submit"):
                 df = conn.read(worksheet="Sheet1")
                 exp = (datetime.now() + timedelta(days=d)).strftime("%Y-%m-%d")
                 new = pd.DataFrame([{"Name":n, "Email":e.lower(), "Date":datetime.now().strftime("%Y-%m-%d"), 
                                      "Status":"Pending", "Last Login":"Never", "Session":"Offline", "Expiry":exp}])
                 conn.update(worksheet="Sheet1", data=pd.concat([df, new], ignore_index=True))
-                st.success("Request sent!")
+                st.success("Sent!")
 
     with tabs[2]: # ADMIN LOGIN
         st.subheader("Admin Control")
         admin_input = st.text_input("Master Key", type="password")
-        rem = st.checkbox("Keep me logged in (Refresh Protection)")
+        rem = st.checkbox("Keep me logged in")
         if st.button("Unlock Admin"):
             if admin_input == MASTER_ADMIN_KEY:
-                st.session_state.owner_verified = True
+                st.session_state.admin_verified = True
                 if rem: st.query_params["admin_auth"] = MASTER_ADMIN_KEY
                 st.rerun()
 
-# --- 5. NAVIGATION LOGIC ---
-if not st.session_state.owner_verified:
-    gatekeeper()
-else:
-    # Use named functions instead of lambdas to prevent StreamlitAPIException
+# --- 5. MAIN ROUTING LOGIC ---
+if st.session_state.admin_verified:
+    # If Admin is logged in, show Admin Pages
     pg = st.navigation([
-        st.Page(terminal_online, title="Terminal", icon="📟"),
         st.Page(admin_dashboard, title="Manage Users", icon="👥"),
-        st.Page(logout_page, title="Logout", icon="🔒")
+        st.Page(lambda: (st.query_params.clear(), st.session_state.update({"admin_verified": False}), st.rerun()), title="Logout", icon="🔒")
     ])
     pg.run()
+elif st.session_state.user_verified:
+    # If User is logged in, show Member Home
+    member_home()
+else:
+    # Otherwise, show the Login Gatekeeper
+    gatekeeper()

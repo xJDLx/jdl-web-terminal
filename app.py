@@ -7,7 +7,6 @@ import os
 import datetime
 import json
 import time
-import urllib.parse
 import numpy as np
 
 # --- CONFIGURATION ---
@@ -65,7 +64,7 @@ def save_api_key(key):
 def load_local_database():
     if not os.path.exists(DB_FILE): return None, "❌ Database Not Found"
     try:
-        with open(DB_FILE, "r", encoding="utf-8") as f:
+        with open(DB_FILE, "r", encoding="utf-8-sig") as f:
             data = json.load(f)
         if isinstance(data, list):
             return { (item.get("name") or item.get("market_hash_name")): item for item in data }, None
@@ -75,7 +74,7 @@ def load_local_database():
 def load_portfolio():
     required = ["Item Name", "Type", "AT Price", "AT Supply", "Sess Price", "Sess Supply", "Price (CNY)", "Supply", "Daily Sales", "Last Updated"]
     if os.path.exists(CSV_FILE):
-        df = pd.read_csv(CSV_FILE)
+        df = pd.read_csv(CSV_FILE, encoding="utf-8-sig")
         for col in required:
             if col not in df.columns: df[col] = 0
         return df[required]
@@ -87,7 +86,7 @@ def save_portfolio(df):
 def load_history():
     if os.path.exists(HISTORY_FILE): 
         try: 
-            df_h = pd.read_csv(HISTORY_FILE)
+            df_h = pd.read_csv(HISTORY_FILE, encoding="utf-8-sig")
             df_h['Date'] = pd.to_datetime(df_h['Date'])
             return df_h
         except: return pd.DataFrame(columns=["Date", "Item Name", "Price (CNY)", "Supply", "Sales Detected"])
@@ -189,7 +188,7 @@ def main():
     current_weights = {'abs': st.session_state.w_abs, 'mom': st.session_state.w_mom, 'div': st.session_state.w_div}
     
     if not df_raw.empty:
-        df_raw["Market Chart"] = df_raw["Item Name"].apply(lambda x: f"https://steamdt.com/cs2/{urllib.parse.quote(x)}")
+        df_raw["Market Chart"] = df_raw["Item Name"].apply(lambda x: f"https://steamdt.com/cs2/{x}")
         pred_res = df_raw.apply(get_prediction_metrics, axis=1, args=(current_weights,), result_type='expand')
         df_raw["Score"], df_raw["Signal"], df_raw["Trend"], df_raw["Breakdown"], df_raw["3H"], df_raw["Today"], df_raw["Yesterday"], df_raw["Syncs"] = \
             pred_res["score"], pred_res["reason"], pred_res["trend"], pred_res["breakdown"], pred_res["3h"], pred_res["today"], pred_res["yesterday"], pred_res["syncs"]

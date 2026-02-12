@@ -16,7 +16,7 @@ st.set_page_config(page_title="JDL Terminal", page_icon="📟", layout="wide")
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
 except Exception as e:
-    st.error("Credential Error: Waiting for Secrets setup.")
+    st.error("Credential Error: Waiting for Secrets setup in Streamlit Cloud.")
     st.stop()
 
 if "owner_verified" not in st.session_state:
@@ -35,7 +35,7 @@ def gatekeeper():
             if st.form_submit_button("Submit Request"):
                 if req_name and req_email:
                     try:
-                        # Pull current sheet -> Append -> Push back
+                        # Fetch existing -> Append -> Update Google Sheet
                         df = conn.read()
                         new_data = pd.DataFrame([{"Name": req_name, "Email": req_email, "Date": str(date.today())}])
                         updated_df = pd.concat([df, new_data], ignore_index=True)
@@ -67,10 +67,11 @@ def terminal_page():
 def admin_dashboard():
     st.title("👥 User Administration")
     try:
+        # Pull live requests from your Google Sheet
         df = conn.read()
         st.dataframe(df, use_container_width=True)
     except:
-        st.error("Could not load requests.")
+        st.error("Could not load requests from the database.")
 
 pg = st.navigation([
     st.Page(terminal_page, title="Terminal", icon="📟"),

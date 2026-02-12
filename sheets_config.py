@@ -3,8 +3,9 @@ import time
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import streamlit as st
+from functools import lru_cache
 
 def init_google_sheets():
     """Initialize Google Sheets connection"""
@@ -37,22 +38,35 @@ def init_google_sheets():
     except Exception as e:
         raise Exception(f"Google Sheets Setup Required:\n{str(e)}")
 
+@lru_cache(maxsize=1)
+def _cached_read_sheet(sheet_name, worksheet_name, cache_key):
+    """Cached version of sheet reading"""
+    client = init_google_sheets()
+    sheet = client.open(sheet_name)
+    worksheet = sheet.worksheet(worksheet_name)
+    data = worksheet.get_all_records()
+    return pd.DataFrame(data)
+
 def read_sheet(sheet_name, worksheet_name):
-    """Read data from Google Sheet"""
+    """Read data from Google Sheet with caching"""
     try:
-        client = init_google_sheets()
-        sheet = client.open(sheet_name)
-        worksheet = sheet.worksheet(worksheet_name)
-        data = worksheet.get_all_records()
-        return pd.DataFrame(data)
+        # Generate cache key based on current minute
+        cache_key = datetime.now().strftime("%Y%m%d%H%M")
+        
+        # Use cached data if available and less than 1 minute old
+        return _cached_read_sheet(sheet_name, worksheet_name, cache_key)
     except Exception as e:
         raise Exception(f"Failed to read sheet: {e}")
 
 def update_sheet(sheet_name, worksheet_name, df):
     """Update Google Sheet with DataFrame"""
     try:
-        # Simple rate limiting
-        time.sleep(1)  # Ensure at least 1 second between updates
+        # Rate limiting based on last update time
+        last_update = getattr(update_sheet, '_last_update', None)
+        if last_update:
+            time_since_update = (datetime.now() - last_update).total_seconds()
+            if time_since_update < 2:  # Minimum 2 seconds between updates
+                time.sleep(2 - time_since_update)
         client = init_google_sheets()
         sheet = client.open(sheet_name)
         worksheet = sheet.worksheet(worksheet_name)
@@ -69,6 +83,11 @@ def update_sheet(sheet_name, worksheet_name, df):
         if not df.empty:
             values = df.values.tolist()
             worksheet.update('A2', values)
+            
+        # Store last update time
+        update_sheet._last_update = datetime.now()
+        # Clear the read cache to ensure fresh data on next read
+        _cached_read_sheet.cache_clear()
             
     except Exception as e:
         raise Exception(f"Failed to update sheet: {e}")

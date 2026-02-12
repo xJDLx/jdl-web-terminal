@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import random
+import json
 from datetime import datetime
 
 # --- 1. HEARTBEAT & EXPIRY ---
@@ -79,15 +80,59 @@ def tab_overview(conn, email):
 def tab_predictions(conn):
     st.header("🔮 AI Predictions")
     
+    # Add new prediction form
+    with st.expander("➕ Add New Prediction"):
+        try:
+            with open('csgo_api_v47.json', 'r') as f:
+                api_data = json.load(f)
+                
+            with st.form("new_prediction"):
+                title = st.text_input("Title", max_chars=50)
+                description = st.text_area("Description", max_chars=200)
+                confidence = st.slider("Confidence", 0, 100, 50)
+                status = st.selectbox("Status", ["Active", "Pending", "Completed"])
+                
+                submitted = st.form_submit_button("Submit Prediction")
+                
+                if submitted and title and description:
+                    try:
+                        # Get existing predictions or create new DataFrame
+                        try:
+                            predictions_df = conn.read(worksheet="Predictions", ttl=0)
+                        except:
+                            predictions_df = pd.DataFrame(columns=['Title', 'Description', 'Status', 'Confidence', 'Date', 'Accuracy'])
+                        
+                        # Add new prediction
+                        new_row = {
+                            'Title': title,
+                            'Description': description,
+                            'Status': status,
+                            'Confidence': f"{confidence}",
+                            'Date': datetime.now().strftime("%Y-%m-%d"),
+                            'Accuracy': '0'
+                        }
+                        predictions_df = pd.concat([predictions_df, pd.DataFrame([new_row])], ignore_index=True)
+                        
+                        # Update the sheet
+                        conn.update(worksheet="Predictions", data=predictions_df)
+                        st.success("Prediction added successfully!")
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"Error adding prediction: {e}")
+        except FileNotFoundError:
+            st.error("Required API file not found: csgo_api_v47.json")
+        except json.JSONDecodeError:
+            st.error("Error reading API file: Invalid JSON format")
+    
+    # Display existing predictions
     try:
-        # Fetch predictions from database
         predictions_df = conn.read(worksheet="Predictions", ttl=0)
         predictions_df = predictions_df.fillna("")
         
         if predictions_df.empty:
             st.info("No predictions available yet.")
         else:
-            # Display predictions as cards
             for index, row in predictions_df.iterrows():
                 with st.container(border=True):
                     col1, col2 = st.columns([3, 1])
@@ -96,7 +141,6 @@ def tab_predictions(conn):
                         st.subheader(f"📊 {row.get('Title', 'Untitled')}")
                         st.write(row.get('Description', ''))
                         
-                        # Show metadata
                         meta_col1, meta_col2, meta_col3 = st.columns(3)
                         meta_col1.caption(f"Status: {row.get('Status', 'Active')}")
                         meta_col2.caption(f"Confidence: {row.get('Confidence', 'N/A')}")
@@ -106,7 +150,7 @@ def tab_predictions(conn):
                         st.metric("Accuracy", f"{row.get('Accuracy', '0')}%")
     
     except Exception as e:
-        st.info("📋 Predictions database not yet configured. Admin can add predictions from the Command Center.")
+        st.error(f"Error loading predictions: {e}")
 
 def tab_inventory():
     st.header("📦 Inventory")

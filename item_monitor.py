@@ -36,7 +36,12 @@ def show_item_monitor(conn):
         st.session_state.items_db_initialized = True
     
     # Check if API key is configured
-    api_key = load_api_key()
+    user_folder = st.session_state.get("user_folder")
+    if not user_folder:
+        st.error("User session not initialized properly")
+        return
+        
+    api_key = load_api_key(user_folder)
     
     if not api_key:
         st.warning("⚙️ API Configuration Required")
@@ -313,7 +318,9 @@ def show_settings_view(conn, api_key: str):
         if st.button("🔄 Reset API Key", use_container_width=True):
             import os
             try:
-                os.remove("steamdt_config.json")
+                config_file = os.path.join(st.session_state.user_folder, "steamdt_config.json")
+                if os.path.exists(config_file):
+                    os.remove(config_file)
                 st.success("API Key removed. Please re-enter it.")
                 st.rerun()
             except Exception as e:

@@ -49,6 +49,7 @@ def get_user_folder(user_email):
     user_folder = os.path.join(USER_DATA_DIR, user_email.replace("@", "_at_").replace(".", "_dot_"))
     if not os.path.exists(user_folder):
         os.makedirs(user_folder, exist_ok=True)
+    st.session_state.user_folder = user_folder  # Store in session state
     return user_folder
 
 def get_user_portfolio_path(user_email):
@@ -84,8 +85,8 @@ if "w_mom" not in st.session_state:
     st.session_state.w_mom = DEFAULT_WEIGHTS['mom']
 if "w_div" not in st.session_state: 
     st.session_state.w_div = DEFAULT_WEIGHTS['div']
-if "api_key" not in st.session_state: 
-    st.session_state.api_key = ""
+if "user_folder" not in st.session_state:
+    st.session_state.user_folder = None
 
 
 # --- CORE ENGINE FUNCTIONS ---

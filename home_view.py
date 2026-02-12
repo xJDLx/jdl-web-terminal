@@ -93,69 +93,7 @@ def tab_settings(conn):
     
     st.divider()
     
-    # --- 🔌 STEAMDT API SECTION ---
-    with st.container(border=True):
-        st.subheader("🔌 API Configuration")
-        
-        try:
-            try:
-                df = read_sheet("CSGO_Database", "Sheet1")
-                df = df.fillna("")
-            except Exception as e:
-                st.error("Cannot connect to Google Sheets. Please check:")
-                st.code(str(e))
-                st.info("Need help? Contact support with error details above.")
-                return
-            
-            # Get Email from URL
-            email_param = st.query_params.get("u")
-            
-            # --- DEBUG INFO (Only shows if something is wrong) ---
-            if not email_param:
-                st.error("Error: No user email detected in URL.")
-                st.stop()
-                
-            # SMART MATCH LOGIC
-            clean_param = email_param.strip().lower()
-            match_series = df['Email'].astype(str).str.strip().str.lower()
-            
-            # Check if user exists
-            if clean_param in match_series.values:
-                # Get the row index
-                idx = match_series[match_series == clean_param].index[0]
-                user_row = df.iloc[idx]
-                
-                # Check current key
-                current_key = ""
-                if "SteamDT API" in df.columns:
-                    val = user_row.get("SteamDT API", "")
-                    if pd.notna(val) and str(val) != "nan":
-                        current_key = str(val)
-                else:
-                    # Auto-create column if missing
-                    df["SteamDT API"] = ""
-                    conn.update(worksheet="Sheet1", data=df)
-
-                # Status
-                if current_key: st.caption("Status: 🟢 Key Saved")
-                else: st.caption("Status: 🔴 No Key Found")
-
-                # Input
-                new_key = st.text_input("SteamDT API Key", value=current_key, type="password")
-                
-                if st.button("💾 Save API Key"):
-                    if new_key != current_key:  # Only update if key changed
-                        # Update EXACT row index
-                        df.at[idx, "SteamDT API"] = new_key
-                        conn.update(worksheet="Sheet1", data=df)
-                        st.success("Key Saved Successfully!")
-            else:
-                st.error(f"User '{email_param}' not found in database.")
-                st.write("Debug: available emails ->", df['Email'].tolist())
-
-        except Exception as e:
-            st.error(f"Settings Error: {e}")
-
+    # API key management is now handled in item_monitor.py
     st.divider()
 
     with st.expander("🔐 Security Profile"):

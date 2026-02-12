@@ -144,17 +144,18 @@ class SteamdtAPI:
             return None
 
 
-def load_api_key(config_file: str = "steamdt_config.json") -> Optional[str]:
+def load_api_key(user_folder: str) -> Optional[str]:
     """
-    Load API key from config file
+    Load API key from user's private config
     
     Args:
-        config_file: Path to config file containing API key
+        user_folder: Path to user's private folder
         
     Returns:
         API key string or None if not found
     """
     try:
+        config_file = os.path.join(user_folder, "steamdt_config.json")
         if os.path.exists(config_file):
             with open(config_file, 'r') as f:
                 config = json.load(f)
@@ -164,18 +165,22 @@ def load_api_key(config_file: str = "steamdt_config.json") -> Optional[str]:
     return None
 
 
-def save_api_key(api_key: str, config_file: str = "steamdt_config.json"):
+def save_api_key(api_key: str, user_folder: str):
     """
-    Save API key to config file
+    Save API key to user's private config
     
     Args:
         api_key: Steamdt API key
-        config_file: Path to save config file
+        user_folder: Path to user's private folder
     """
     try:
+        if not os.path.exists(user_folder):
+            os.makedirs(user_folder, exist_ok=True)
+        
+        config_file = os.path.join(user_folder, "steamdt_config.json")
         config = {"api_key": api_key, "timestamp": datetime.now().isoformat()}
+        
         with open(config_file, 'w') as f:
             json.dump(config, f, indent=2)
-        print(f"API key saved to {config_file}")
     except Exception as e:
         print(f"Error saving API key: {e}")

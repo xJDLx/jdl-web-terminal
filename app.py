@@ -17,12 +17,15 @@ if st.query_params.get("role") == "admin":
     st.session_state.admin_verified = True
 elif st.query_params.get("role") == "user":
     st.session_state.user_verified = True
+    # We pull the name from the URL if it exists
+    if "name" in st.query_params:
+        st.session_state.user_name = st.query_params["name"]
 
 # 4. ROUTING
 if st.session_state.admin_verified:
     admin_view.show_dashboard(conn)
 elif st.session_state.user_verified:
-    # PASS THE CONNECTION HERE
+    # IMPORTANT: PASS THE conn HERE
     home_view.show_home(conn)
 else:
     gatekeeper.show_login(conn)

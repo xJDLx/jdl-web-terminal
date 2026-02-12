@@ -6,10 +6,14 @@ def show_command_center(conn):
     st.title("🛡️ Command Center")
     
     try:
-        # 1. FETCH & PREPARE DATA
+        # 1. FETCH & CLEAN DATA
         df = conn.read(worksheet="Sheet1", ttl=0)
-        df = df.fillna("") 
+        df = df.fillna("")
         
+        # --- THE FIX: Convert 'Last Login' to DateTime objects ---
+        if 'Last Login' in df.columns:
+            df['Last Login'] = pd.to_datetime(df['Last Login'], errors='coerce')
+
         # 2. METRICS
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Active Sessions", len(df[df['Session'] == 'Online']))
@@ -30,6 +34,7 @@ def show_command_center(conn):
                 st.rerun()
             if b2.button("⚠️ Reset Offline", use_container_width=True):
                 df['Session'] = "Offline"
+                # Convert back to string for storage if needed, or rely on GSheets handling
                 conn.update(worksheet="Sheet1", data=df)
                 st.rerun()
 
@@ -39,6 +44,7 @@ def show_command_center(conn):
 
         # 4. FILTER LOGIC
         if search:
+            # We convert to string briefly just for searching
             mask = df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)
             df_display = df[mask]
         else:
@@ -55,14 +61,17 @@ def show_command_center(conn):
             column_config={
                 "Session": st.column_config.SelectboxColumn("Session", options=["Online", "Offline"]),
                 "Status": st.column_config.SelectboxColumn("Status", options=["Approved", "Pending", "Denied"]),
-                # FIXED: Removed broken 'type' argument. 
-                # Set to None to HIDE passwords from the table (Best Practice)
-                "Password": None, 
+                "Password": None, # Hides the password column for security
                 "Last Login": st.column_config.DatetimeColumn("Last Login", format="D MMM, HH:mm"),
             }
         )
         
+        # SAVE BUTTON
         if st.button("💾 Save Database Changes", type="primary", use_container_width=True):
+            # Convert datetime back to string format for Google Sheets compatibility
+            if 'Last Login' in edited_df.columns:
+                edited_df['Last Login'] = edited_df['Last Login'].astype(str)
+                
             conn.update(worksheet="Sheet1", data=edited_df)
             st.success("✅ Database updated successfully!")
 

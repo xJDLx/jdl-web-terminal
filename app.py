@@ -6,22 +6,28 @@ import home_view
 
 # 1. SETUP
 st.set_page_config(page_title="JDL Terminal", page_icon="📟", layout="wide")
-conn = st.connection("gsheets", type=GSheetsConnection, ttl=0)
 
-# 2. SESSION PERSISTENCE
-# Check if a user is already "remembered" in the URL
+# 2. SAFE SECRET LOADING
+# Using .get() prevents the KeyError if the secret is missing
+MASTER_KEY = st.secrets.get("MASTER_KEY", "jdl_default_2026")
+
+# 3. INITIALIZE SESSION STATE
+# This prevents KeyErrors in other files
+if "user_verified" not in st.session_state:
+    st.session_state.user_verified = False
+if "admin_verified" not in st.session_state:
+    st.session_state.admin_verified = False
+if "user_name" not in st.session_state:
+    st.session_state.user_name = "Guest"
+
+# 4. PERSISTENCE CHECK
 if "u" in st.query_params:
     st.session_state.user_verified = True
-    st.session_state.user_email = st.query_params["u"]
 
-if "admin_auth" in st.query_params and st.query_params["admin_auth"] == st.secrets["MASTER_KEY"]:
-    st.session_state.admin_verified = True
+# 5. CONNECTION
+conn = st.connection("gsheets", type=GSheetsConnection, ttl=0)
 
-# Initialize state if not present
-if "user_verified" not in st.session_state: st.session_state.user_verified = False
-if "admin_verified" not in st.session_state: st.session_state.admin_verified = False
-
-# 3. ROUTING
+# 6. ROUTING
 if st.session_state.admin_verified:
     admin_view.show_dashboard(conn)
 elif st.session_state.user_verified:

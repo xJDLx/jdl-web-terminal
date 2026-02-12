@@ -12,7 +12,6 @@ import urllib.parse
 
 # --- CONFIGURATION ---
 DB_FILE = "csgo_api_v47.json"
-# Single price endpoint for targeted item retrieval
 STEAMDT_BASE_URL = "https://open.steamdt.com/open/cs2/v1/price/single"
 USER_DATA_DIR = "user_data"
 DEFAULT_WEIGHTS = {'abs': 0.4, 'mom': 0.3, 'div': 0.3}
@@ -84,7 +83,10 @@ def load_portfolio(user_email):
 
 def save_portfolio(user_email, df):
     path = get_user_portfolio_path(user_email)
-    if path: df.to_csv(path, index=False, encoding="utf-8-sig")
+    if path: 
+        # Ensure we only save the core columns, not calculated display columns
+        save_cols = ["Item Name", "Type", "AT Price", "AT Supply", "Sess Price", "Sess Supply", "Price (CNY)", "Supply", "Daily Sales", "Last Updated"]
+        df[save_cols].to_csv(path, index=False, encoding="utf-8-sig")
 
 def load_history(user_email):
     path = get_user_history_path(user_email)
@@ -130,7 +132,7 @@ def get_prediction_metrics(user_email, row, weights):
     
     b_3h, b_today, b_yest = get_bought_momentum(user_email, row['Item Name'])
     
-    # AT Supply Choke calculation: How much has supply dropped from our AT target?
+    # AT Supply Choke calculation
     supply_diff = at_supply - current_supply
     s_pct = supply_diff / max(1, at_supply)
     abs_pts = np.clip((s_pct * 100) * 10, 0, 100)
@@ -170,9 +172,13 @@ def user_dashboard():
     
     if not df_raw.empty:
         weights = {'abs': st.session_state.w_abs, 'mom': st.session_state.w_mom, 'div': st.session_state.w_div}
-        # Dynamically calculate AT metrics and momentum
-        pred_metrics = df_raw.apply(lambda row: get_prediction_metrics(user_email, row, weights), axis=1)
-        df_display = pd.concat([df_raw, pred_metrics], axis=1)
+        
+        # Avoid duplicate columns by dropping calculated ones before recalculating
+        cols_to_drop = [c for c in ["score", "reason", "Daily Sales"] if c in df_raw.columns]
+        df_clean = df_raw.drop(columns=cols_to_drop)
+        
+        pred_metrics = df_clean.apply(lambda row: get_prediction_metrics(user_email, row, weights), axis=1)
+        df_display = pd.concat([df_clean, pred_metrics], axis=1)
     else:
         df_display = df_raw
 
@@ -180,21 +186,26 @@ def user_dashboard():
     
     with t[0]:
         if not df_display.empty:
+            # Fixed duplicate column error by cleaning df_display before display
             st.dataframe(df_display.sort_values("score", ascending=False), use_container_width=True, hide_index=True)
         else: st.info("Add items in Homepage")
 
     with t[1]:
         st.subheader("Add/Edit AT Targets")
-        # Homepage logic for manually entering AT targets
-        with st.form("at_target_form"):
-            item_to_edit = st.selectbox("Select Item", df_raw["Item Name"].tolist() if not df_raw.empty else ["No Items"])
-            new_at_p = st.number_input("Analysis Target Price", value=0.0)
-            new_at_s = st.number_input("Analysis Target Supply", value=0)
-            if st.form_submit_button("Update AT Values"):
-                df_raw.loc[df_raw["Item Name"] == item_to_edit, ["AT Price", "AT Supply"]] = [new_at_p, new_at_s]
-                save_portfolio(user_email, df_raw)
-                st.success("Targets updated!")
-                st.rerun()
+        if not df_raw.empty:
+            with st.form("at_target_form"):
+                item_to_edit = st.selectbox("Select Item", df_raw["Item Name"].tolist())
+                current_row = df_raw[df_raw["Item Name"] == item_to_edit].iloc[0]
+                new_at_p = st.number_input("Analysis Target Price", value=float(current_row.get("AT Price", 0.0)))
+                new_at_s = st.number_input("Analysis Target Supply", value=int(current_row.get("AT Supply", 0)))
+                
+                if st.form_submit_button("Update AT Values"):
+                    df_raw.loc[df_raw["Item Name"] == item_to_edit, ["AT Price", "AT Supply"]] = [new_at_p, new_at_s]
+                    save_portfolio(user_email, df_raw)
+                    st.success("Targets updated!")
+                    st.rerun()
+        else:
+            st.info("No items in portfolio to edit targets.")
 
     with t[2]:
         st.subheader("🔑 API Key")
@@ -207,7 +218,7 @@ def user_dashboard():
         if st.button("🔄 Global Sync"):
             if not st.session_state.api_key: st.error("No API Key")
             else:
-                # Sess (Session) tracking: Store current values before fetching new ones
+                # Sess (Session) tracking
                 df_raw["Sess Price"] = df_raw["Price (CNY)"]
                 df_raw["Sess Supply"] = df_raw["Supply"]
                 

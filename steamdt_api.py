@@ -2,12 +2,30 @@ import requests
 import json
 import os
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TypedDict
+from pydantic import BaseModel
+from dotenv import load_dotenv
+
+load_dotenv()
+
+class PriceData(TypedDict):
+    sellPrice: float
+    sellCount: int
+    platform: str
+
+class ItemResponse(BaseModel):
+    success: bool
+    data: Optional[List[PriceData]]
+    errorMsg: Optional[str]
+
+class SteamdtAPIException(Exception):
+    """Custom exception for SteamDT API errors"""
+    pass
 
 class SteamdtAPI:
     """Steamdt.com API client for CS2 item monitoring"""
     
-    BASE_URL = "https://open.steamdt.com"
+    BASE_URL = os.getenv("STEAMDT_BASE_URL", "https://open.steamdt.com")
     
     def __init__(self, api_key: str):
         """

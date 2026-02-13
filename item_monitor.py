@@ -7,12 +7,11 @@ from steamdt_api import SteamdtAPI, load_api_key, save_api_key
 def initialize_items_database(conn):
     """Create Items worksheet if it doesn't exist with simplified columns"""
     try:
-        # Try to read existing Items worksheet
         conn.read(worksheet="Items", ttl=0)
         return True
     except:
         try:
-            # Create new Items worksheet with headers (Entry and Daily metrics removed)
+            # Simplified headers: Removed Entry Price, Entry Supply, and Daily Volume
             headers_df = pd.DataFrame(columns=[
                 'Item Name', 'Market Hash Name', 'Added Date', 
                 'Current Price', 'Avg Price (7d)', 'Price Change', 
@@ -44,7 +43,6 @@ def show_add_items_view(conn, api_key: str):
                 if price_data:
                     current_price = price_data.get('price', 0)
                     
-                    # Validation: Do not add if data is 0
                     if current_price == 0:
                         st.error("❌ Cannot add item: API returned 0 for price.")
                         return
@@ -59,7 +57,6 @@ def show_add_items_view(conn, api_key: str):
                             'Status', 'Last Updated'
                         ])
 
-                    # Create record without entry or volume metrics
                     new_item = {
                         'Item Name': market_hash_name,
                         'Market Hash Name': market_hash_name,
@@ -72,12 +69,10 @@ def show_add_items_view(conn, api_key: str):
                     }
                     
                     items_df = pd.concat([items_df, pd.DataFrame([new_item])], ignore_index=True)
-                    
-                    # Cleanup: Ensure no items with 0 price remain
                     items_df = items_df[items_df['Current Price'] != 0]
                     
                     conn.update(worksheet="Items", data=items_df)
-                    st.success(f"✅ Added {market_hash_name} to monitor!")
+                    st.success(f"✅ Added {market_hash_name}")
                     st.rerun()
                 else:
                     st.error("❌ API returned no data.")

@@ -1,116 +1,48 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
-import gatekeeper
 import pandas as pd
 import requests
 import os
 import datetime
-import json
-import time
 import urllib.parse
 
-# --- CONFIGURATION ---
-DB_FILE = "csgo_api_v47.json"
-STEAMDT_BASE_URL = "https://open.steamdt.com/open/cs2/v1/price/single"
-USER_DATA_DIR = "user_data"
-
-# --- PAGE CONFIG ---
-st.set_page_config(
-    page_title="JDL System", 
-    page_icon="🏢", 
-    layout="wide", 
-    initial_sidebar_state="collapsed"
-)
-
-# --- USER-SPECIFIC PATH FUNCTIONS ---
-def get_user_folder(user_email):
-    if not user_email: return None
-    user_folder = os.path.join(USER_DATA_DIR, user_email.replace("@", "_at_").replace(".", "_dot_"))
-    if not os.path.exists(user_folder):
-        os.makedirs(user_folder, mode=0o700)
-    return user_folder
-
-def get_user_portfolio_path(user_email):
-    folder = get_user_folder(user_email)
-    return os.path.join(folder, "portfolio.csv") if folder else None
-
-def get_user_api_key_path(user_email):
-    folder = get_user_folder(user_email)
-    return os.path.join(folder, "api_key.txt") if folder else None
-
-# --- CONNECTION ---
-conn = st.connection("gsheets", type=GSheetsConnection, ttl=300)
-
-# Initialize Session State
-for key, val in [("admin_verified", False), ("user_verified", False), 
-                 ("user_email", None), ("user_name", None), ("api_key", "")]:
-    if key not in st.session_state:
-        st.session_state[key] = val
-
-# --- CORE ENGINE FUNCTIONS ---
-def load_api_key(user_email):
-    path = get_user_api_key_path(user_email)
-    if path and os.path.exists(path):
-        with open(path, "r") as f: return f.read().strip()
-    return ""
-
-def save_api_key(user_email, key):
-    path = get_user_api_key_path(user_email)
-    if path:
-        with open(path, "w") as f: f.write(key.strip())
-
-@st.cache_data(ttl=3600)
-def load_local_database():
-    if not os.path.exists(DB_FILE): return [], "❌ Database Not Found"
-    try:
-        with open(DB_FILE, "r", encoding="utf-8-sig") as f:
-            data = json.load(f)
-        items = data.get("items", [])
-        return sorted(items), None
-    except Exception as e: return [], str(e)
+# ... (Previous imports and Page Config remain same)
 
 def load_portfolio(user_email):
-    # Added Entry tracking columns to the portfolio structure
+    # Simplified column structure matching the new database
     cols = [
-        "Item Name", "Current Price (CNY)", "Entry Price (CNY)", 
-        "Listed Volume", "Daily Sales", "Entry Supply", 
+        "Item Name", "Current Price (CNY)", 
         "24h Price Change (%)", "7d Price Change (%)", 
-        "Entry Time", "Last Updated"
+        "Added Date", "Last Updated"
     ]
     path = get_user_portfolio_path(user_email)
     if path and os.path.exists(path) and os.path.getsize(path) > 0:
         try:
             df = pd.read_csv(path, encoding="utf-8-sig")
+            # Ensure only requested columns exist
             for c in cols:
-                if c not in df.columns: 
-                    df[c] = 0.0 if ("Price" in c or "%" in c) else ("" if "Time" in c else 0)
+                if c not in df.columns: df[c] = 0.0 if "%" in c else ""
             return df[cols]
         except: return pd.DataFrame(columns=cols)
     return pd.DataFrame(columns=cols)
 
-def save_portfolio(user_email, df):
-    path = get_user_portfolio_path(user_email)
-    if path: df.to_csv(path, index=False, encoding="utf-8-sig")
-
+# Update fetch function to ignore entry/volume logic
 def fetch_steamdt_market_data(item_hash, api_key):
     try:
         encoded_name = urllib.parse.quote(item_hash)
         headers = {"Authorization": f"Bearer {api_key}"}
-        url = f"{STEAMDT_BASE_URL}?marketHashName={encoded_name}"
+        url = f"https://open.steamdt.com/open/cs2/v1/price/single?marketHashName={encoded_name}"
         r = requests.get(url, headers=headers, timeout=15)
         if r.status_code == 200:
             res = r.json()
             data = res.get("data", [])
             item_meta = res.get("item", {})
-            if not data: return None, "No market data"
+            if not data: return None, "No data"
             
             buff_data = next((m for m in data if m['platform'] == "BUFF"), data[0])
             
             return {
                 "price": buff_data.get('sellPrice', 0),
-                "volume": sum(m.get('sellCount', 0) for m in data),
-                "existing_supply": item_meta.get('quantity', 0),
-                "daily_sales": item_meta.get('sales24h', 0),
                 "p_24h": item_meta.get('price24hChange', 0.0),
                 "p_7d": item_meta.get('price7dChange', 0.0),
                 "updated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -118,97 +50,19 @@ def fetch_steamdt_market_data(item_hash, api_key):
         return None, f"HTTP {r.status_code}"
     except Exception as e: return None, str(e)
 
-def color_price_change(val):
-    color = 'lightgreen' if val > 0 else ('lightcoral' if val < 0 else 'transparent')
-    return f'background-color: {color}'
-
-# --- USER DASHBOARD ---
-def user_dashboard():
-    db_items, db_err = load_local_database()
-    user_email = st.session_state.user_email
-    if not st.session_state.api_key:
-        st.session_state.api_key = load_api_key(user_email)
-    
-    st.title("📟 JDL Intelligence Terminal")
-    df_raw = load_portfolio(user_email)
-    
-    t = st.tabs(["🛰️ Monitor", "🏠 Manage Items", "⚙️ Settings"])
-    
-    with t[0]:
-        if not df_raw.empty:
-            styled_df = df_raw.style.map(color_price_change, subset=["24h Price Change (%)", "7d Price Change (%)"]).format(precision=2)
-            st.dataframe(styled_df, use_container_width=True, hide_index=True)
-        else: st.info("Monitor is empty.")
-
-    with t[1]:
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.subheader("Add Item from Database")
-            if db_err: st.error(db_err)
-            else:
-                selected_item = st.selectbox("Select Item", options=[""] + db_items, index=0)
-                if st.button("✅ Add Selected"):
-                    if not st.session_state.api_key: st.error("Add API Key in Settings.")
-                    elif selected_item and selected_item not in df_raw["Item Name"].values:
-                        data, err = fetch_steamdt_market_data(selected_item, st.session_state.api_key)
-                        if data:
-                            # Capturing fixed entry values only once upon addition
-                            new_row = pd.DataFrame([{
-                                "Item Name": selected_item,
-                                "Current Price (CNY)": data['price'],
-                                "Entry Price (CNY)": data['price'], 
-                                "Listed Volume": data['volume'],
-                                "Daily Sales": data['daily_sales'],
-                                "Entry Supply": data['existing_supply'], 
-                                "24h Price Change (%)": data['p_24h'],
-                                "7d Price Change (%)": data['p_7d'],
-                                "Entry Time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                "Last Updated": data['updated']
-                            }])
-                            df_updated = pd.concat([df_raw, new_row], ignore_index=True)
-                            save_portfolio(user_email, df_updated)
-                            st.rerun()
-                        else: st.error(err)
-        with col_b:
-            st.subheader("Remove Item")
-            if not df_raw.empty:
-                to_delete = st.selectbox("Select to Delete", [""] + df_raw["Item Name"].tolist())
-                if st.button("🗑️ Delete"):
-                    df_updated = df_raw[df_raw["Item Name"] != to_delete]
-                    save_portfolio(user_email, df_updated)
-                    st.rerun()
-
-    with t[2]:
-        st.subheader("⚙️ Settings")
-        api_input = st.text_input("SteamDT API Key", value=st.session_state.api_key, type="password")
-        if st.button("💾 Save Key"):
-            save_api_key(user_email, api_input)
-            st.session_state.api_key = api_input
-            st.success("Key saved.")
-
-        if st.button("🔄 Sync Market Data"):
-            if not st.session_state.api_key: st.error("No API Key")
-            else:
-                p_bar = st.progress(0)
-                for i, (idx, row) in enumerate(df_raw.iterrows()):
-                    data, _ = fetch_steamdt_market_data(row['Item Name'], st.session_state.api_key)
-                    if data:
-                        # Updating only current market values while preserving Entry data
-                        df_raw.at[idx, "Current Price (CNY)"] = data['price']
-                        df_raw.at[idx, "Listed Volume"] = data['volume']
-                        df_raw.at[idx, "Daily Sales"] = data['daily_sales']
-                        df_raw.at[idx, "24h Price Change (%)"] = data['p_24h']
-                        df_raw.at[idx, "7d Price Change (%)"] = data['p_7d']
-                        df_raw.at[idx, "Last Updated"] = data['updated']
-                    p_bar.progress((i + 1) / len(df_raw))
-                    time.sleep(1.2)
-                save_portfolio(user_email, df_raw)
-                st.rerun()
-
-def main():
-    if not st.session_state.user_verified and not st.session_state.admin_verified:
-        gatekeeper.show_login(conn)
-    else: user_dashboard()
-
-if __name__ == "__main__":
-    main()
+# In user_dashboard loop, update the row creation
+# (Replace the relevant snippet inside user_dashboard)
+if st.button("✅ Add Selected"):
+    data, err = fetch_steamdt_market_data(selected_item, st.session_state.api_key)
+    if data and data['price'] != 0:
+        new_row = pd.DataFrame([{
+            "Item Name": selected_item,
+            "Current Price (CNY)": data['price'],
+            "24h Price Change (%)": data['p_24h'],
+            "7d Price Change (%)": data['p_7d'],
+            "Added Date": datetime.datetime.now().strftime("%Y-%m-%d"),
+            "Last Updated": data['updated']
+        }])
+        df_updated = pd.concat([df_raw, new_row], ignore_index=True)
+        save_portfolio(user_email, df_updated)
+        st.rerun()

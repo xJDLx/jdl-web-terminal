@@ -73,13 +73,14 @@ def load_local_database():
     except Exception as e: return None, str(e)
 
 def load_portfolio(user_email):
-    cols = ["Item name", "Current price"]
+    cols = ["Item name", "Current price", "Supply"]
     path = get_user_portfolio_path(user_email)
     if path and os.path.exists(path):
         try:
             df = pd.read_csv(path, encoding="utf-8-sig")
             for c in cols:
-                if c not in df.columns: df[c] = 0.0 if c == "Current price" else ""
+                if c not in df.columns: 
+                    df[c] = 0.0 if c == "Current price" else (0 if c == "Supply" else "")
             return df[cols]
         except: return pd.DataFrame(columns=cols)
     return pd.DataFrame(columns=cols)
@@ -87,7 +88,7 @@ def load_portfolio(user_email):
 def save_portfolio(user_email, df):
     path = get_user_portfolio_path(user_email)
     if path: 
-        df[["Item name", "Current price"]].to_csv(path, index=False, encoding="utf-8-sig")
+        df[["Item name", "Current price", "Supply"]].to_csv(path, index=False, encoding="utf-8-sig")
 
 def fetch_market_data(item_hash, api_key):
     try:
@@ -98,11 +99,16 @@ def fetch_market_data(item_hash, api_key):
         if r.status_code == 200:
             res = r.json()
             data = res.get("data", [])
-            if not data: return None, "No data"
+            if not data: return None, None, "No data"
+            
+            # Price: Prefer BUFF (standard market practice)
             price = next((m['sellPrice'] for m in data if m['platform'] == "BUFF"), data[0]['sellPrice'])
-            return price, None
-        return None, f"HTTP {r.status_code}"
-    except Exception as e: return None, str(e)
+            # Supply: Total sum of sellCount across ALL markets
+            total_supply = sum(m.get("sellCount", 0) for m in data)
+            
+            return price, total_supply, None
+        return None, None, f"HTTP {r.status_code}"
+    except Exception as e: return None, None, str(e)
 
 # --- USER DASHBOARD ---
 def user_dashboard():
@@ -118,7 +124,8 @@ def user_dashboard():
     
     with t[0]:
         if not df_raw.empty:
-            st.dataframe(df_raw, use_container_width=True, hide_index=True)
+            # Sort by name for a clean terminal look
+            st.dataframe(df_raw.sort_values("Item name"), use_container_width=True, hide_index=True)
         else: st.info("Monitor is empty.")
 
     with t[1]:
@@ -132,9 +139,9 @@ def user_dashboard():
                     if not st.session_state.api_key:
                         st.error("Set API Key in Management first.")
                     elif selected_item and selected_item not in df_raw["Item name"].values:
-                        price, err = fetch_market_data(selected_item, st.session_state.api_key)
-                        if price:
-                            new_row = pd.DataFrame([{"Item name": selected_item, "Current price": price}])
+                        price, supply, err = fetch_market_data(selected_item, st.session_state.api_key)
+                        if price is not None:
+                            new_row = pd.DataFrame([{"Item name": selected_item, "Current price": price, "Supply": supply}])
                             df_updated = pd.concat([df_raw, new_row], ignore_index=True)
                             save_portfolio(user_email, df_updated)
                             st.rerun()
@@ -158,40 +165,39 @@ def user_dashboard():
 
         st.divider()
         st.subheader("🧹 Data Management")
-        
-        # Clear All Confirmation Logic
         if not st.session_state.show_clear_confirm:
-            if st.button("🔥 Clear All Data", type="secondary"):
+            if st.button("🔥 Clear All Data"):
                 st.session_state.show_clear_confirm = True
                 st.rerun()
         else:
-            st.warning("⚠️ This will permanently delete your entire monitor list.")
-            confirm_check = st.checkbox("I understand and want to delete everything.")
-            col_c1, col_c2 = st.columns(2)
-            with col_c1:
+            st.warning("⚠️ Wipe all data?")
+            confirm_check = st.checkbox("I am sure.")
+            c1, c2 = st.columns(2)
+            with c1:
                 if st.button("❌ Cancel"):
                     st.session_state.show_clear_confirm = False
                     st.rerun()
-            with col_c2:
-                if st.button("🚀 CONFIRM CLEAR", type="primary", disabled=not confirm_check):
-                    df_empty = pd.DataFrame(columns=["Item name", "Current price"])
+            with c2:
+                if st.button("🚀 WIPE ALL", type="primary", disabled=not confirm_check):
+                    df_empty = pd.DataFrame(columns=["Item name", "Current price", "Supply"])
                     save_portfolio(user_email, df_empty)
                     st.session_state.show_clear_confirm = False
-                    st.success("All data cleared.")
                     st.rerun()
 
         st.divider()
-        if st.button("🔄 Refresh Prices"):
+        if st.button("🔄 Full Market Sync"):
             if not st.session_state.api_key: st.error("No API Key")
             else:
                 p = st.progress(0)
                 for i, (idx, row) in enumerate(df_raw.iterrows()):
-                    price, _ = fetch_market_data(row['Item name'], st.session_state.api_key)
-                    if price:
+                    price, supply, _ = fetch_market_data(row['Item name'], st.session_state.api_key)
+                    if price is not None:
                         df_raw.at[idx, "Current price"] = price
+                        df_raw.at[idx, "Supply"] = supply
                     p.progress((i + 1) / len(df_raw))
-                    time.sleep(1.2)
+                    time.sleep(1.2) # To prevent API rate limiting
                 save_portfolio(user_email, df_raw)
+                st.success("Sync Complete")
                 st.rerun()
 
 def main():

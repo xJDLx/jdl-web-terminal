@@ -70,7 +70,6 @@ def load_local_database():
     except Exception as e: return [], str(e)
 
 def load_portfolio(user_email):
-    # Added Entry tracking columns
     cols = [
         "Item Name", "Current Price (CNY)", "Entry Price (CNY)", 
         "Listed Volume", "Daily Sales", "Entry Supply", 
@@ -152,17 +151,16 @@ def user_dashboard():
                     elif selected_item and selected_item not in df_raw["Item Name"].values:
                         data, err = fetch_steamdt_market_data(selected_item, st.session_state.api_key)
                         if data:
-                            # Capture Entry data points
                             new_row = pd.DataFrame([{
                                 "Item Name": selected_item,
                                 "Current Price (CNY)": data['price'],
-                                "Entry Price (CNY)": data['price'], # Frozen entry price
+                                "Entry Price (CNY)": data['price'], 
                                 "Listed Volume": data['volume'],
                                 "Daily Sales": data['daily_sales'],
-                                "Entry Supply": data['existing_supply'], # Frozen entry supply
+                                "Entry Supply": data['existing_supply'], 
                                 "24h Price Change (%)": data['p_24h'],
                                 "7d Price Change (%)": data['p_7d'],
-                                "Entry Time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), # Exact time
+                                "Entry Time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                                 "Last Updated": data['updated']
                             }])
                             df_updated = pd.concat([df_raw, new_row], ignore_index=True)
@@ -193,6 +191,7 @@ def user_dashboard():
                 for i, (idx, row) in enumerate(df_raw.iterrows()):
                     data, _ = fetch_steamdt_market_data(row['Item Name'], st.session_state.api_key)
                     if data:
+                        # Protect Entry Data: Update only 'Current' and trend metrics
                         df_raw.at[idx, "Current Price (CNY)"] = data['price']
                         df_raw.at[idx, "Listed Volume"] = data['volume']
                         df_raw.at[idx, "Daily Sales"] = data['daily_sales']

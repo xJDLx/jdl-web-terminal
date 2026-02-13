@@ -73,14 +73,15 @@ def load_local_database():
     except Exception as e: return None, str(e)
 
 def load_portfolio(user_email):
-    cols = ["Item name", "Current price", "Supply"]
+    # Differentiating between market listing and total global volume
+    cols = ["Item name", "Current price", "Listed Supply", "Existing Supply (存世量)"]
     path = get_user_portfolio_path(user_email)
     if path and os.path.exists(path):
         try:
             df = pd.read_csv(path, encoding="utf-8-sig")
             for c in cols:
                 if c not in df.columns: 
-                    df[c] = 0.0 if c == "Current price" else (0 if c == "Supply" else "")
+                    df[c] = 0.0 if c == "Current price" else 0
             return df[cols]
         except: return pd.DataFrame(columns=cols)
     return pd.DataFrame(columns=cols)
@@ -88,7 +89,7 @@ def load_portfolio(user_email):
 def save_portfolio(user_email, df):
     path = get_user_portfolio_path(user_email)
     if path: 
-        df[["Item name", "Current price", "Supply"]].to_csv(path, index=False, encoding="utf-8-sig")
+        df[["Item name", "Current price", "Listed Supply", "Existing Supply (存世量)"]].to_csv(path, index=False, encoding="utf-8-sig")
 
 def fetch_market_data(item_hash, api_key):
     try:
@@ -98,17 +99,20 @@ def fetch_market_data(item_hash, api_key):
         r = requests.get(url, headers=headers, timeout=15)
         if r.status_code == 200:
             res = r.json()
-            data = res.get("data", [])
-            if not data: return None, None, "No data"
+            data_list = res.get("data", [])
+            item_info = res.get("item", {})
             
-            # Price: Prefer BUFF (standard market practice)
-            price = next((m['sellPrice'] for m in data if m['platform'] == "BUFF"), data[0]['sellPrice'])
-            # Supply: Total sum of sellCount across ALL markets
-            total_supply = sum(m.get("sellCount", 0) for m in data)
+            if not data_list: return None, None, None, "No data"
             
-            return price, total_supply, None
-        return None, None, f"HTTP {r.status_code}"
-    except Exception as e: return None, None, str(e)
+            price = next((m['sellPrice'] for m in data_list if m['platform'] == "BUFF"), data_list[0]['sellPrice'])
+            listed_supply = sum(m.get("sellCount", 0) for m in data_list)
+            
+            # The "quantity" field in the item object represents 存世量 (Existing Supply)
+            existing_supply = item_info.get("quantity", 0)
+            
+            return price, listed_supply, existing_supply, None
+        return None, None, None, f"HTTP {r.status_code}"
+    except Exception as e: return None, None, None, str(e)
 
 # --- USER DASHBOARD ---
 def user_dashboard():
@@ -124,7 +128,6 @@ def user_dashboard():
     
     with t[0]:
         if not df_raw.empty:
-            # Sort by name for a clean terminal look
             st.dataframe(df_raw.sort_values("Item name"), use_container_width=True, hide_index=True)
         else: st.info("Monitor is empty.")
 
@@ -139,9 +142,9 @@ def user_dashboard():
                     if not st.session_state.api_key:
                         st.error("Set API Key in Management first.")
                     elif selected_item and selected_item not in df_raw["Item name"].values:
-                        price, supply, err = fetch_market_data(selected_item, st.session_state.api_key)
-                        if price is not None:
-                            new_row = pd.DataFrame([{"Item name": selected_item, "Current price": price, "Supply": supply}])
+                        p, l, e, err = fetch_market_data(selected_item, st.session_state.api_key)
+                        if p is not None:
+                            new_row = pd.DataFrame([{"Item name": selected_item, "Current price": p, "Listed Supply": l, "Existing Supply (存世量)": e}])
                             df_updated = pd.concat([df_raw, new_row], ignore_index=True)
                             save_portfolio(user_email, df_updated)
                             st.rerun()
@@ -164,40 +167,19 @@ def user_dashboard():
             st.success("API Key saved.")
 
         st.divider()
-        st.subheader("🧹 Data Management")
-        if not st.session_state.show_clear_confirm:
-            if st.button("🔥 Clear All Data"):
-                st.session_state.show_clear_confirm = True
-                st.rerun()
-        else:
-            st.warning("⚠️ Wipe all data?")
-            confirm_check = st.checkbox("I am sure.")
-            c1, c2 = st.columns(2)
-            with c1:
-                if st.button("❌ Cancel"):
-                    st.session_state.show_clear_confirm = False
-                    st.rerun()
-            with c2:
-                if st.button("🚀 WIPE ALL", type="primary", disabled=not confirm_check):
-                    df_empty = pd.DataFrame(columns=["Item name", "Current price", "Supply"])
-                    save_portfolio(user_email, df_empty)
-                    st.session_state.show_clear_confirm = False
-                    st.rerun()
-
-        st.divider()
-        if st.button("🔄 Full Market Sync"):
+        if st.button("🔄 Sync Market & Existing Supply"):
             if not st.session_state.api_key: st.error("No API Key")
             else:
-                p = st.progress(0)
+                p_bar = st.progress(0)
                 for i, (idx, row) in enumerate(df_raw.iterrows()):
-                    price, supply, _ = fetch_market_data(row['Item name'], st.session_state.api_key)
-                    if price is not None:
-                        df_raw.at[idx, "Current price"] = price
-                        df_raw.at[idx, "Supply"] = supply
-                    p.progress((i + 1) / len(df_raw))
-                    time.sleep(1.2) # To prevent API rate limiting
+                    p, l, e, _ = fetch_market_data(row['Item name'], st.session_state.api_key)
+                    if p is not None:
+                        df_raw.at[idx, "Current price"] = p
+                        df_raw.at[idx, "Listed Supply"] = l
+                        df_raw.at[idx, "Existing Supply (存世量)"] = e
+                    p_bar.progress((i + 1) / len(df_raw))
+                    time.sleep(1.2)
                 save_portfolio(user_email, df_raw)
-                st.success("Sync Complete")
                 st.rerun()
 
 def main():

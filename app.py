@@ -8,9 +8,11 @@ import datetime
 import json
 import time
 import urllib.parse
+import numpy as np
 
 # --- CONFIGURATION ---
 DB_FILE = "csgo_api_v47.json"
+# Official single price and metadata endpoint
 STEAMDT_BASE_URL = "https://open.steamdt.com/open/cs2/v1/price/single"
 USER_DATA_DIR = "user_data"
 
@@ -25,8 +27,6 @@ st.set_page_config(
 # --- USER-SPECIFIC PATH FUNCTIONS ---
 def get_user_folder(user_email):
     if not user_email: return None
-    if not os.path.exists(USER_DATA_DIR):
-        os.makedirs(USER_DATA_DIR, mode=0o700)
     user_folder = os.path.join(USER_DATA_DIR, user_email.replace("@", "_at_").replace(".", "_dot_"))
     if not os.path.exists(user_folder):
         os.makedirs(user_folder, mode=0o700)
@@ -73,15 +73,14 @@ def load_local_database():
     except Exception as e: return None, str(e)
 
 def load_portfolio(user_email):
-    # Differentiating between market listing and total global volume
-    cols = ["Item name", "Current price", "Listed Supply", "Existing Supply (存世量)"]
+    cols = ["Name of", "Current price", "Listed Supply", "Existing Supply (存世量)", "Market Density (%)"]
     path = get_user_portfolio_path(user_email)
     if path and os.path.exists(path):
         try:
             df = pd.read_csv(path, encoding="utf-8-sig")
             for c in cols:
                 if c not in df.columns: 
-                    df[c] = 0.0 if c == "Current price" else 0
+                    df[c] = 0.0 if "price" in c or "%" in c else 0
             return df[cols]
         except: return pd.DataFrame(columns=cols)
     return pd.DataFrame(columns=cols)
@@ -89,30 +88,47 @@ def load_portfolio(user_email):
 def save_portfolio(user_email, df):
     path = get_user_portfolio_path(user_email)
     if path: 
-        df[["Item name", "Current price", "Listed Supply", "Existing Supply (存世量)"]].to_csv(path, index=False, encoding="utf-8-sig")
+        df[["Name of", "Current price", "Listed Supply", "Existing Supply (存世量)", "Market Density (%)"]].to_csv(path, index=False, encoding="utf-8-sig")
 
 def fetch_market_data(item_hash, api_key):
+    """
+    Revised fetcher to accurately capture '存世量' (Existing Supply) 
+    from the SteamDT 'item' metadata block.
+    """
     try:
         encoded_name = urllib.parse.quote(item_hash)
         headers = {"Authorization": f"Bearer {api_key}"}
         url = f"{STEAMDT_BASE_URL}?marketHashName={encoded_name}"
         r = requests.get(url, headers=headers, timeout=15)
+        
         if r.status_code == 200:
             res = r.json()
             data_list = res.get("data", [])
             item_info = res.get("item", {})
             
-            if not data_list: return None, None, None, "No data"
+            if not data_list and not item_info:
+                return None, None, None, None, "No item data found"
             
-            price = next((m['sellPrice'] for m in data_list if m['platform'] == "BUFF"), data_list[0]['sellPrice'])
+            # PRICE: Standard Buff priority
+            price = next((m['sellPrice'] for m in data_list if m['platform'] == "BUFF"), 0)
+            if price == 0 and data_list:
+                price = data_list[0].get('sellPrice', 0)
+                
+            # LISTED SUPPLY: Sum of all market listings
             listed_supply = sum(m.get("sellCount", 0) for m in data_list)
             
-            # The "quantity" field in the item object represents 存世量 (Existing Supply)
+            # EXISTING SUPPLY (存世量): 
+            # quantity represents total global existence recorded by SteamDT
             existing_supply = item_info.get("quantity", 0)
             
-            return price, listed_supply, existing_supply, None
-        return None, None, None, f"HTTP {r.status_code}"
-    except Exception as e: return None, None, None, str(e)
+            # DENSITY calculation
+            density = (listed_supply / existing_supply * 100) if existing_supply > 0 else 0
+            
+            return price, listed_supply, existing_supply, round(density, 2), None
+            
+        return None, None, None, None, f"HTTP {r.status_code}"
+    except Exception as e:
+        return None, None, None, None, str(e)
 
 # --- USER DASHBOARD ---
 def user_dashboard():
@@ -128,7 +144,7 @@ def user_dashboard():
     
     with t[0]:
         if not df_raw.empty:
-            st.dataframe(df_raw.sort_values("Item name"), use_container_width=True, hide_index=True)
+            st.dataframe(df_raw.sort_values("Name of"), use_container_width=True, hide_index=True)
         else: st.info("Monitor is empty.")
 
     with t[1]:
@@ -141,20 +157,20 @@ def user_dashboard():
                 if st.button("✅ Add Item"):
                     if not st.session_state.api_key:
                         st.error("Set API Key in Management first.")
-                    elif selected_item and selected_item not in df_raw["Item name"].values:
-                        p, l, e, err = fetch_market_data(selected_item, st.session_state.api_key)
+                    elif selected_item and selected_item not in df_raw["Name of"].values:
+                        p, l, e, d, err = fetch_market_data(selected_item, st.session_state.api_key)
                         if p is not None:
-                            new_row = pd.DataFrame([{"Item name": selected_item, "Current price": p, "Listed Supply": l, "Existing Supply (存世量)": e}])
+                            new_row = pd.DataFrame([{"Name of": selected_item, "Current price": p, "Listed Supply": l, "Existing Supply (存世量)": e, "Market Density (%)": d}])
                             df_updated = pd.concat([df_raw, new_row], ignore_index=True)
                             save_portfolio(user_email, df_updated)
                             st.rerun()
         with col_b:
             st.subheader("Remove Item")
             if not df_raw.empty:
-                item_to_remove = st.selectbox("Select to Remove", [""] + df_raw["Item name"].tolist())
+                item_to_remove = st.selectbox("Select to Remove", [""] + df_raw["Name of"].tolist())
                 if st.button("🗑️ Delete Entry"):
                     if item_to_remove:
-                        df_updated = df_raw[df_raw["Item name"] != item_to_remove]
+                        df_updated = df_raw[df_raw["Name of"] != item_to_remove]
                         save_portfolio(user_email, df_updated)
                         st.rerun()
 
@@ -172,15 +188,22 @@ def user_dashboard():
             else:
                 p_bar = st.progress(0)
                 for i, (idx, row) in enumerate(df_raw.iterrows()):
-                    p, l, e, _ = fetch_market_data(row['Item name'], st.session_state.api_key)
+                    p, l, e, d, _ = fetch_market_data(row['Name of'], st.session_state.api_key)
                     if p is not None:
                         df_raw.at[idx, "Current price"] = p
                         df_raw.at[idx, "Listed Supply"] = l
                         df_raw.at[idx, "Existing Supply (存世量)"] = e
+                        df_raw.at[idx, "Market Density (%)"] = d
                     p_bar.progress((i + 1) / len(df_raw))
                     time.sleep(1.2)
                 save_portfolio(user_email, df_raw)
                 st.rerun()
+        
+        st.divider()
+        if st.button("🔥 Clear All Data"):
+            df_empty = pd.DataFrame(columns=["Name of", "Current price", "Listed Supply", "Existing Supply (存世量)", "Market Density (%)"])
+            save_portfolio(user_email, df_empty)
+            st.rerun()
 
 def main():
     if not st.session_state.user_verified and not st.session_state.admin_verified:

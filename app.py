@@ -34,6 +34,7 @@ def load_local_database():
     except Exception as e: return None, str(e)
 
 def load_portfolio():
+    # Updated required columns to prevent "nothing there" errors
     required = ["Item Name", "Type", "AT Price", "AT Supply", "Sess Price", "Sess Supply", "Price (CNY)", "Supply", "Last Updated"]
     if os.path.exists(CSV_FILE):
         df = pd.read_csv(CSV_FILE)

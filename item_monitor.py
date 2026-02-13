@@ -8,6 +8,7 @@ def initialize_items_database(conn):
         conn.read(worksheet="Items", ttl=0)
         return True
     except:
+        # Columns must match app.py for consistency
         headers_df = pd.DataFrame(columns=['Item Name', 'Added Date', 'AT Price', 'AT Supply', 'Current Price', 'Supply', 'Last Updated'])
         conn.create(worksheet="Items", data=headers_df)
         return True

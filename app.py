@@ -7,14 +7,12 @@ import os
 import datetime
 import json
 import time
-import numpy as np
 import urllib.parse
 
 # --- CONFIGURATION ---
 DB_FILE = "csgo_api_v47.json"
 STEAMDT_BASE_URL = "https://open.steamdt.com/open/cs2/v1/price/single"
 USER_DATA_DIR = "user_data"
-DEFAULT_WEIGHTS = {'abs': 0.4, 'mom': 0.3, 'div': 0.3}
 
 # --- PAGE CONFIG ---
 st.set_page_config(
@@ -38,10 +36,6 @@ def get_user_portfolio_path(user_email):
     folder = get_user_folder(user_email)
     return os.path.join(folder, "portfolio.csv") if folder else None
 
-def get_user_history_path(user_email):
-    folder = get_user_folder(user_email)
-    return os.path.join(folder, "history.csv") if folder else None
-
 def get_user_api_key_path(user_email):
     folder = get_user_folder(user_email)
     return os.path.join(folder, "api_key.txt") if folder else None
@@ -51,9 +45,7 @@ conn = st.connection("gsheets", type=GSheetsConnection, ttl=300)
 
 # Initialize Session State
 for key, val in [("admin_verified", False), ("user_verified", False), 
-                 ("user_email", None), ("user_name", None),
-                 ("w_abs", DEFAULT_WEIGHTS['abs']), ("w_mom", DEFAULT_WEIGHTS['mom']), 
-                 ("w_div", DEFAULT_WEIGHTS['div']), ("api_key", "")]:
+                 ("user_email", None), ("user_name", None), ("api_key", "")]:
     if key not in st.session_state:
         st.session_state[key] = val
 
@@ -71,7 +63,6 @@ def save_api_key(user_email, key):
 
 @st.cache_data(ttl=3600)
 def load_local_database():
-    """Loads valid item list from local JSON"""
     if not os.path.exists(DB_FILE): return None, "❌ Database Not Found"
     try:
         with open(DB_FILE, "r", encoding="utf-8-sig") as f:
@@ -81,14 +72,13 @@ def load_local_database():
     except Exception as e: return None, str(e)
 
 def load_portfolio(user_email):
-    cols = ["Name of", "Entry price", "Entry supply", "Current price", "current supply", 
-            "supply change number(%)", "price change number(%)", "Entry date", "Score", "Reason", "Daily sales"]
+    cols = ["Item name", "Current price"]
     path = get_user_portfolio_path(user_email)
     if path and os.path.exists(path):
         try:
             df = pd.read_csv(path, encoding="utf-8-sig")
             for c in cols:
-                if c not in df.columns: df[c] = 0.0
+                if c not in df.columns: df[c] = 0.0 if c == "Current price" else ""
             return df[cols]
         except: return pd.DataFrame(columns=cols)
     return pd.DataFrame(columns=cols)
@@ -96,12 +86,9 @@ def load_portfolio(user_email):
 def save_portfolio(user_email, df):
     path = get_user_portfolio_path(user_email)
     if path: 
-        save_cols = ["Name of", "Entry price", "Entry supply", "Current price", "current supply", 
-                     "supply change number(%)", "price change number(%)", "Entry date", "Score", "Reason", "Daily sales"]
-        df[save_cols].to_csv(path, index=False, encoding="utf-8-sig")
+        df[["Item name", "Current price"]].to_csv(path, index=False, encoding="utf-8-sig")
 
 def fetch_market_data(item_hash, api_key):
-    """Fetches real-time price and supply from SteamDT"""
     try:
         encoded_name = urllib.parse.quote(item_hash)
         headers = {"Authorization": f"Bearer {api_key}"}
@@ -112,31 +99,9 @@ def fetch_market_data(item_hash, api_key):
             data = res.get("data", [])
             if not data: return None, "No data"
             price = next((m['sellPrice'] for m in data if m['platform'] == "BUFF"), data[0]['sellPrice'])
-            supply = sum(m.get("sellCount", 0) for m in data)
-            return {"price": price, "supply": supply}, None
+            return price, None
         return None, f"HTTP {r.status_code}"
     except Exception as e: return None, str(e)
-
-def calculate_metrics(row, weights):
-    """Calculates requested percentage changes and scores"""
-    e_p, e_s = float(row["Entry price"]), int(row["Entry supply"])
-    c_p, c_s = float(row["Current price"]), int(row["current supply"])
-    
-    # % Change Calculations
-    s_change = ((e_s - c_s) / max(1, e_s)) * 100
-    p_change = ((c_p - e_p) / max(0.01, e_p)) * 100
-    
-    # Prediction Scoring
-    abs_pts = np.clip(s_change * 10, 0, 100)
-    total_score = round(abs_pts * weights['abs'], 1)
-    status = "🥇 THE BEST" if total_score >= 80 else ("❌ THE WORST" if total_score < 15 else "⚖️ NEUTRAL")
-    
-    return pd.Series({
-        "supply change number(%)": round(s_change, 2),
-        "price change number(%)": round(p_change, 2),
-        "Score": total_score,
-        "Reason": status
-    })
 
 # --- USER DASHBOARD ---
 def user_dashboard():
@@ -145,50 +110,34 @@ def user_dashboard():
     if not st.session_state.api_key:
         st.session_state.api_key = load_api_key(user_email)
     
-    st.title("📟 JDL Intelligence Terminal")
+    st.title("📟 JDL Terminal")
     df_raw = load_portfolio(user_email)
     
-    if not df_raw.empty:
-        weights = {'abs': st.session_state.w_abs, 'mom': st.session_state.w_mom, 'div': st.session_state.w_div}
-        # Recalculate dynamic display columns
-        calc_cols = ["supply change number(%)", "price change number(%)", "Score", "Reason"]
-        df_clean = df_raw.drop(columns=[c for c in calc_cols if c in df_raw.columns])
-        metrics = df_clean.apply(lambda row: calculate_metrics(row, weights), axis=1)
-        df_display = pd.concat([df_clean, metrics], axis=1)
-    else:
-        df_display = df_raw
-
-    t = st.tabs(["🛰️ Predictor", "🏠 Homepage", "⚙️ Management"])
+    t = st.tabs(["🛰️ Monitor", "🏠 Add Items", "⚙️ Management"])
     
     with t[0]:
-        st.dataframe(df_display.sort_values("Score", ascending=False), use_container_width=True, hide_index=True)
+        if not df_raw.empty:
+            st.dataframe(df_raw, use_container_width=True, hide_index=True)
+        else: st.info("Add items in the Homepage tab.")
 
     with t[1]:
-        st.subheader("Add Jewelry from Database")
+        st.subheader("Add Items from Database")
         if DB_DATA:
             valid_items = sorted(list(DB_DATA.keys()))
             selected_item = st.selectbox("Select Item", [""] + valid_items)
             
-            if st.button("✅ Auto-Add with SteamDT Info"):
+            if st.button("✅ Add Item"):
                 if not st.session_state.api_key:
                     st.error("Please set your SteamDT API Key in Management first.")
-                elif selected_item and selected_item not in df_raw["Name of"].values:
-                    with st.spinner(f"Fetching baseline data for {selected_item}..."):
-                        data, err = fetch_market_data(selected_item, st.session_state.api_key)
-                        if data:
-                            new_row = pd.DataFrame([{
-                                "Name of": selected_item,
-                                "Entry price": data["price"],
-                                "Entry supply": data["supply"],
-                                "Current price": data["price"],
-                                "current supply": data["supply"],
-                                "Entry date": datetime.datetime.now().strftime("%Y-%m-%d")
-                            }])
-                            df_updated = pd.concat([df_raw, new_row], ignore_index=True)
-                            save_portfolio(user_email, df_updated)
-                            st.success(f"{selected_item} added successfully with real-time baseline data!")
-                            st.rerun()
-                        else: st.error(f"Sync failed: {err}")
+                elif selected_item and selected_item not in df_raw["Item name"].values:
+                    price, err = fetch_market_data(selected_item, st.session_state.api_key)
+                    if price:
+                        new_row = pd.DataFrame([{"Item name": selected_item, "Current price": price}])
+                        df_updated = pd.concat([df_raw, new_row], ignore_index=True)
+                        save_portfolio(user_email, df_updated)
+                        st.success(f"{selected_item} added!")
+                        st.rerun()
+                    else: st.error(f"Sync failed: {err}")
         else: st.error("Database file missing.")
 
     with t[2]:
@@ -199,19 +148,19 @@ def user_dashboard():
             st.session_state.api_key = api_input
             st.success("API Key saved.")
 
-        if st.button("🔄 Global Sync"):
+        st.divider()
+        if st.button("🔄 Refresh Prices"):
             if not st.session_state.api_key: st.error("No API Key")
             else:
                 p = st.progress(0)
                 for i, (idx, row) in enumerate(df_raw.iterrows()):
-                    data, _ = fetch_market_data(row['Name of'], st.session_state.api_key)
-                    if data:
-                        df_raw.at[idx, "Current price"] = data["price"]
-                        df_raw.at[idx, "current supply"] = data["supply"]
+                    price, _ = fetch_market_data(row['Item name'], st.session_state.api_key)
+                    if price:
+                        df_raw.at[idx, "Current price"] = price
                     p.progress((i + 1) / len(df_raw))
                     time.sleep(1.2)
                 save_portfolio(user_email, df_raw)
-                st.success("Database Sync Complete")
+                st.success("Prices refreshed!")
                 st.rerun()
 
 def main():

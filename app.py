@@ -11,7 +11,6 @@ import urllib.parse
 
 # --- CONFIGURATION ---
 DB_FILE = "csgo_api_v47.json"
-# Based on doc.steamdt.com/157024916d0 schema
 STEAMDT_BASE_URL = "https://open.steamdt.com/open/cs2/v1/price/single"
 USER_DATA_DIR = "user_data"
 
@@ -60,16 +59,22 @@ def save_api_key(user_email, key):
     if path:
         with open(path, "w") as f: f.write(key.strip())
 
+@st.cache_data(ttl=3600)
+def load_local_database():
+    """Loads the valid item list from csgo_api_v47.json"""
+    if not os.path.exists(DB_FILE): return [], "❌ Database Not Found"
+    try:
+        with open(DB_FILE, "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+        # Extract item names assuming 'items' is a list of strings or objects with a 'name' key
+        items = data.get("items", [])
+        if items and isinstance(items[0], dict):
+            return sorted([item.get("name", "") for item in items if item.get("name")]), None
+        return sorted(items), None
+    except Exception as e: return [], str(e)
+
 def load_portfolio(user_email):
-    # Columns as specified in the SteamDT search/market documentation
-    cols = [
-        "Item Name", 
-        "Current Price (CNY)", 
-        "Listed Volume", 
-        "24h Price Change (%)", 
-        "7d Price Change (%)", 
-        "Last Updated"
-    ]
+    cols = ["Item Name", "Current Price (CNY)", "Listed Volume", "24h Price Change (%)", "7d Price Change (%)", "Last Updated"]
     path = get_user_portfolio_path(user_email)
     if path and os.path.exists(path):
         try:
@@ -83,48 +88,38 @@ def load_portfolio(user_email):
 
 def save_portfolio(user_email, df):
     path = get_user_portfolio_path(user_email)
-    if path: 
-        df.to_csv(path, index=False, encoding="utf-8-sig")
+    if path: df.to_csv(path, index=False, encoding="utf-8-sig")
 
 def fetch_steamdt_market_data(item_hash, api_key):
-    """
-    Fetches full market details from SteamDT.
-    Includes current price, volume, and history trends.
-    """
     try:
         encoded_name = urllib.parse.quote(item_hash)
         headers = {"Authorization": f"Bearer {api_key}"}
         url = f"{STEAMDT_BASE_URL}?marketHashName={encoded_name}"
         r = requests.get(url, headers=headers, timeout=15)
-        
         if r.status_code == 200:
             res = r.json()
             data = res.get("data", [])
             item_meta = res.get("item", {})
-            
             if not data: return None, "No market data"
-            
-            # Map Buff platform price (Primary)
             buff_data = next((m for m in data if m['platform'] == "BUFF"), data[0])
-            price = buff_data.get('sellPrice', 0)
-            volume = sum(m.get('sellCount', 0) for m in data)
-            
-            # Extract history metrics if available in metadata
-            p_24h = item_meta.get('price24hChange', 0.0)
-            p_7d = item_meta.get('price7dChange', 0.0)
-            
             return {
-                "price": price,
-                "volume": volume,
-                "p_24h": p_24h,
-                "p_7d": p_7d,
+                "price": buff_data.get('sellPrice', 0),
+                "volume": sum(m.get('sellCount', 0) for m in data),
+                "p_24h": item_meta.get('price24hChange', 0.0),
+                "p_7d": item_meta.get('price7dChange', 0.0),
                 "updated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
             }, None
         return None, f"HTTP {r.status_code}"
     except Exception as e: return None, str(e)
 
+def color_price_change(val):
+    color = 'lightgreen' if val > 0 else ('lightcoral' if val < 0 else 'transparent')
+    return f'background-color: {color}'
+
 # --- USER DASHBOARD ---
 def user_dashboard():
+    # Load items from local JSON database
+    db_items, db_err = load_local_database()
     user_email = st.session_state.user_email
     if not st.session_state.api_key:
         st.session_state.api_key = load_api_key(user_email)
@@ -136,35 +131,35 @@ def user_dashboard():
     
     with t[0]:
         if not df_raw.empty:
-            # Highlight Best/Worst based on 24h performance
-            st.dataframe(df_raw.sort_values("24h Price Change (%)", ascending=False), 
-                         use_container_width=True, hide_index=True)
-        else: st.info("Monitor is empty. Add items in Manage tab.")
+            styled_df = df_raw.style.map(color_price_change, subset=["24h Price Change (%)", "7d Price Change (%)"]).format(precision=2)
+            st.dataframe(styled_df, use_container_width=True, hide_index=True)
+        else: st.info("Monitor is empty.")
 
     with t[1]:
         col_a, col_b = st.columns(2)
         with col_a:
-            st.subheader("Add Item")
-            new_item = st.text_input("Enter Market Hash Name (e.g., AK-47 | Redline (Field-Tested))")
-            if st.button("✅ Add to Monitor"):
-                if not st.session_state.api_key:
-                    st.error("API Key required.")
-                elif new_item:
-                    data, err = fetch_steamdt_market_data(new_item, st.session_state.api_key)
-                    if data:
-                        new_row = pd.DataFrame([{
-                            "Item Name": new_item,
-                            "Current Price (CNY)": data['price'],
-                            "Listed Volume": data['volume'],
-                            "24h Price Change (%)": data['p_24h'],
-                            "7d Price Change (%)": data['p_7d'],
-                            "Last Updated": data['updated']
-                        }])
-                        df_updated = pd.concat([df_raw, new_row], ignore_index=True)
-                        save_portfolio(user_email, df_updated)
-                        st.rerun()
-                    else: st.error(err)
-        
+            st.subheader("Add Item from Database")
+            if db_err: st.error(db_err)
+            else:
+                # Restrict input to existing database items via searchable dropdown
+                selected_item = st.selectbox("Select Item", options=[""] + db_items, index=0)
+                if st.button("✅ Add Selected"):
+                    if not st.session_state.api_key: st.error("Add API Key in Settings.")
+                    elif selected_item and selected_item not in df_raw["Item Name"].values:
+                        data, err = fetch_steamdt_market_data(selected_item, st.session_state.api_key)
+                        if data:
+                            new_row = pd.DataFrame([{
+                                "Item Name": selected_item,
+                                "Current Price (CNY)": data['price'],
+                                "Listed Volume": data['volume'],
+                                "24h Price Change (%)": data['p_24h'],
+                                "7d Price Change (%)": data['p_7d'],
+                                "Last Updated": data['updated']
+                            }])
+                            df_updated = pd.concat([df_raw, new_row], ignore_index=True)
+                            save_portfolio(user_email, df_updated)
+                            st.rerun()
+                        else: st.error(err)
         with col_b:
             st.subheader("Remove Item")
             if not df_raw.empty:
@@ -175,15 +170,14 @@ def user_dashboard():
                     st.rerun()
 
     with t[2]:
-        st.subheader("⚙️ API Configuration")
+        st.subheader("⚙️ Settings")
         api_input = st.text_input("SteamDT API Key", value=st.session_state.api_key, type="password")
         if st.button("💾 Save Key"):
             save_api_key(user_email, api_input)
             st.session_state.api_key = api_input
-            st.success("API Key saved.")
+            st.success("Key saved.")
 
-        st.divider()
-        if st.button("🔄 Full Market Sync"):
+        if st.button("🔄 Sync Market Data"):
             if not st.session_state.api_key: st.error("No API Key")
             else:
                 p_bar = st.progress(0)

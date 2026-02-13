@@ -113,32 +113,48 @@ def user_dashboard():
     st.title("📟 JDL Terminal")
     df_raw = load_portfolio(user_email)
     
-    t = st.tabs(["🛰️ Monitor", "🏠 Add Items", "⚙️ Management"])
+    t = st.tabs(["🛰️ Monitor", "🏠 Edit List", "⚙️ Management"])
     
     with t[0]:
         if not df_raw.empty:
             st.dataframe(df_raw, use_container_width=True, hide_index=True)
-        else: st.info("Add items in the Homepage tab.")
+        else: st.info("Monitor is empty. Add items in the next tab.")
 
     with t[1]:
-        st.subheader("Add Items from Database")
-        if DB_DATA:
-            valid_items = sorted(list(DB_DATA.keys()))
-            selected_item = st.selectbox("Select Item", [""] + valid_items)
-            
-            if st.button("✅ Add Item"):
-                if not st.session_state.api_key:
-                    st.error("Please set your SteamDT API Key in Management first.")
-                elif selected_item and selected_item not in df_raw["Item name"].values:
-                    price, err = fetch_market_data(selected_item, st.session_state.api_key)
-                    if price:
-                        new_row = pd.DataFrame([{"Item name": selected_item, "Current price": price}])
-                        df_updated = pd.concat([df_raw, new_row], ignore_index=True)
+        col_a, col_b = st.columns(2)
+        
+        with col_a:
+            st.subheader("Add Item")
+            if DB_DATA:
+                valid_items = sorted(list(DB_DATA.keys()))
+                selected_item = st.selectbox("Select from Database", [""] + valid_items)
+                
+                if st.button("✅ Add Item"):
+                    if not st.session_state.api_key:
+                        st.error("Set API Key in Management first.")
+                    elif selected_item and selected_item not in df_raw["Item name"].values:
+                        price, err = fetch_market_data(selected_item, st.session_state.api_key)
+                        if price:
+                            new_row = pd.DataFrame([{"Item name": selected_item, "Current price": price}])
+                            df_updated = pd.concat([df_raw, new_row], ignore_index=True)
+                            save_portfolio(user_email, df_updated)
+                            st.success(f"Added {selected_item}")
+                            st.rerun()
+                        else: st.error(f"Sync failed: {err}")
+            else: st.error("Database file missing.")
+
+        with col_b:
+            st.subheader("Remove Item")
+            if not df_raw.empty:
+                item_to_remove = st.selectbox("Select to Remove", [""] + df_raw["Item name"].tolist())
+                if st.button("🗑️ Delete Entry"):
+                    if item_to_remove:
+                        df_updated = df_raw[df_raw["Item name"] != item_to_remove]
                         save_portfolio(user_email, df_updated)
-                        st.success(f"{selected_item} added!")
+                        st.warning(f"Removed {item_to_remove}")
                         st.rerun()
-                    else: st.error(f"Sync failed: {err}")
-        else: st.error("Database file missing.")
+            else:
+                st.info("Nothing to delete.")
 
     with t[2]:
         st.subheader("⚙️ API Configuration")

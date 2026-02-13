@@ -45,7 +45,8 @@ conn = st.connection("gsheets", type=GSheetsConnection, ttl=300)
 
 # Initialize Session State
 for key, val in [("admin_verified", False), ("user_verified", False), 
-                 ("user_email", None), ("user_name", None), ("api_key", "")]:
+                 ("user_email", None), ("user_name", None), ("api_key", ""),
+                 ("show_clear_confirm", False)]:
     if key not in st.session_state:
         st.session_state[key] = val
 
@@ -118,17 +119,15 @@ def user_dashboard():
     with t[0]:
         if not df_raw.empty:
             st.dataframe(df_raw, use_container_width=True, hide_index=True)
-        else: st.info("Monitor is empty. Add items in the next tab.")
+        else: st.info("Monitor is empty.")
 
     with t[1]:
         col_a, col_b = st.columns(2)
-        
         with col_a:
             st.subheader("Add Item")
             if DB_DATA:
                 valid_items = sorted(list(DB_DATA.keys()))
                 selected_item = st.selectbox("Select from Database", [""] + valid_items)
-                
                 if st.button("✅ Add Item"):
                     if not st.session_state.api_key:
                         st.error("Set API Key in Management first.")
@@ -138,11 +137,7 @@ def user_dashboard():
                             new_row = pd.DataFrame([{"Item name": selected_item, "Current price": price}])
                             df_updated = pd.concat([df_raw, new_row], ignore_index=True)
                             save_portfolio(user_email, df_updated)
-                            st.success(f"Added {selected_item}")
                             st.rerun()
-                        else: st.error(f"Sync failed: {err}")
-            else: st.error("Database file missing.")
-
         with col_b:
             st.subheader("Remove Item")
             if not df_raw.empty:
@@ -151,10 +146,7 @@ def user_dashboard():
                     if item_to_remove:
                         df_updated = df_raw[df_raw["Item name"] != item_to_remove]
                         save_portfolio(user_email, df_updated)
-                        st.warning(f"Removed {item_to_remove}")
                         st.rerun()
-            else:
-                st.info("Nothing to delete.")
 
     with t[2]:
         st.subheader("⚙️ API Configuration")
@@ -163,6 +155,30 @@ def user_dashboard():
             save_api_key(user_email, api_input)
             st.session_state.api_key = api_input
             st.success("API Key saved.")
+
+        st.divider()
+        st.subheader("🧹 Data Management")
+        
+        # Clear All Confirmation Logic
+        if not st.session_state.show_clear_confirm:
+            if st.button("🔥 Clear All Data", type="secondary"):
+                st.session_state.show_clear_confirm = True
+                st.rerun()
+        else:
+            st.warning("⚠️ This will permanently delete your entire monitor list.")
+            confirm_check = st.checkbox("I understand and want to delete everything.")
+            col_c1, col_c2 = st.columns(2)
+            with col_c1:
+                if st.button("❌ Cancel"):
+                    st.session_state.show_clear_confirm = False
+                    st.rerun()
+            with col_c2:
+                if st.button("🚀 CONFIRM CLEAR", type="primary", disabled=not confirm_check):
+                    df_empty = pd.DataFrame(columns=["Item name", "Current price"])
+                    save_portfolio(user_email, df_empty)
+                    st.session_state.show_clear_confirm = False
+                    st.success("All data cleared.")
+                    st.rerun()
 
         st.divider()
         if st.button("🔄 Refresh Prices"):
@@ -176,7 +192,6 @@ def user_dashboard():
                     p.progress((i + 1) / len(df_raw))
                     time.sleep(1.2)
                 save_portfolio(user_email, df_raw)
-                st.success("Prices refreshed!")
                 st.rerun()
 
 def main():

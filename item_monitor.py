@@ -7,11 +7,12 @@ from steamdt_api import SteamdtAPI, load_api_key, save_api_key
 def initialize_items_database(conn):
     """Create Items worksheet if it doesn't exist with simplified columns"""
     try:
+        # Try to read existing Items worksheet
         conn.read(worksheet="Items", ttl=0)
         return True
     except:
         try:
-            # Removed Entry Price, Entry Supply, and Daily Sales columns
+            # Create new Items worksheet with headers (Entry and Daily metrics removed)
             headers_df = pd.DataFrame(columns=[
                 'Item Name', 'Market Hash Name', 'Added Date', 
                 'Current Price', 'Avg Price (7d)', 'Price Change', 
@@ -25,12 +26,15 @@ def initialize_items_database(conn):
             return False
 
 def show_add_items_view(conn, api_key: str):
-    """Add new items focused only on current market values"""
+    """Add new items focused only on current market status"""
     st.subheader("Add New Item")
     api = SteamdtAPI(api_key)
     
     with st.form("add_item_form"):
-        market_hash_name = st.text_input("Item Name", placeholder="e.g., AK-47 | Phantom Disruptor (Field-Tested)")
+        market_hash_name = st.text_input(
+            "Item Name", 
+            placeholder="e.g., AK-47 | Phantom Disruptor (Field-Tested)"
+        )
         submitted = st.form_submit_button("Add Item to Monitor")
         
         if submitted and market_hash_name:
@@ -40,9 +44,9 @@ def show_add_items_view(conn, api_key: str):
                 if price_data:
                     current_price = price_data.get('price', 0)
                     
-                    # Basic validation to ensure item exists and has a price
+                    # Validation: Do not add if data is 0
                     if current_price == 0:
-                        st.error("❌ Cannot add item: Price returned is 0.")
+                        st.error("❌ Cannot add item: API returned 0 for price.")
                         return
 
                     try:
@@ -55,6 +59,7 @@ def show_add_items_view(conn, api_key: str):
                             'Status', 'Last Updated'
                         ])
 
+                    # Create record without entry or volume metrics
                     new_item = {
                         'Item Name': market_hash_name,
                         'Market Hash Name': market_hash_name,
@@ -68,11 +73,11 @@ def show_add_items_view(conn, api_key: str):
                     
                     items_df = pd.concat([items_df, pd.DataFrame([new_item])], ignore_index=True)
                     
-                    # Final cleanup to remove any corrupted rows with 0 price
+                    # Cleanup: Ensure no items with 0 price remain
                     items_df = items_df[items_df['Current Price'] != 0]
                     
                     conn.update(worksheet="Items", data=items_df)
-                    st.success(f"✅ Added {market_hash_name}")
+                    st.success(f"✅ Added {market_hash_name} to monitor!")
                     st.rerun()
                 else:
                     st.error("❌ API returned no data.")

@@ -66,10 +66,13 @@ def load_local_database():
         with open(DB_FILE, "r", encoding="utf-8-sig") as f:
             data = json.load(f)
         items = data.get("items", [])
+        if items and isinstance(items[0], dict):
+            return sorted([item.get("name", "") for item in items if item.get("name")]), None
         return sorted(items), None
     except Exception as e: return [], str(e)
 
 def load_portfolio(user_email):
+    # Expanded columns to include frozen Entry data
     cols = [
         "Item Name", "Current Price (CNY)", "Entry Price (CNY)", 
         "Listed Volume", "Daily Sales", "Entry Supply", 
@@ -77,7 +80,7 @@ def load_portfolio(user_email):
         "Entry Time", "Last Updated"
     ]
     path = get_user_portfolio_path(user_email)
-    if path and os.path.exists(path) and os.path.getsize(path) > 0:
+    if path and os.path.exists(path):
         try:
             df = pd.read_csv(path, encoding="utf-8-sig")
             for c in cols:
@@ -102,9 +105,7 @@ def fetch_steamdt_market_data(item_hash, api_key):
             data = res.get("data", [])
             item_meta = res.get("item", {})
             if not data: return None, "No market data"
-            
             buff_data = next((m for m in data if m['platform'] == "BUFF"), data[0])
-            
             return {
                 "price": buff_data.get('sellPrice', 0),
                 "volume": sum(m.get('sellCount', 0) for m in data),
@@ -151,6 +152,7 @@ def user_dashboard():
                     elif selected_item and selected_item not in df_raw["Item Name"].values:
                         data, err = fetch_steamdt_market_data(selected_item, st.session_state.api_key)
                         if data:
+                            # Capture frozen entry data at the moment of addition
                             new_row = pd.DataFrame([{
                                 "Item Name": selected_item,
                                 "Current Price (CNY)": data['price'],
@@ -191,7 +193,7 @@ def user_dashboard():
                 for i, (idx, row) in enumerate(df_raw.iterrows()):
                     data, _ = fetch_steamdt_market_data(row['Item Name'], st.session_state.api_key)
                     if data:
-                        # Protect Entry Data: Update only 'Current' and trend metrics
+                        # Update only dynamic market metrics, leave "Entry" columns alone
                         df_raw.at[idx, "Current Price (CNY)"] = data['price']
                         df_raw.at[idx, "Listed Volume"] = data['volume']
                         df_raw.at[idx, "Daily Sales"] = data['daily_sales']
